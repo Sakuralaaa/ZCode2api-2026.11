@@ -580,7 +580,6 @@
         <button class="group-pill" data-filter="all" aria-pressed="true" type="button">全部账号</button>
         <button class="group-pill" data-filter="cn" aria-pressed="false" type="button">国内 · 手机号</button>
         <button class="group-pill" data-filter="intl" aria-pressed="false" type="button">国际 · 邮箱</button>
-        <button class="group-pill" data-filter="unset" aria-pressed="false" type="button">待设置身份</button>
       </div>
       <div class="search-box">
         <svg class="icon icon-sm" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
@@ -1270,7 +1269,6 @@ function filteredAccounts() {
   return state.pool.filter((acc) => {
     if (state.realmFilter === 'cn' && acc.realm !== 'cn') return false;
     if (state.realmFilter === 'intl' && acc.realm !== 'intl') return false;
-    if (state.realmFilter === 'unset' && acc.identity) return false;
     if (state.searchQuery) {
       const q = state.searchQuery.toLowerCase();
       const hay = `${acc.identity || ''} ${acc.email || ''} ${acc.name || ''} ${acc.label || ''}`.toLowerCase();
