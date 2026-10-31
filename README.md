@@ -159,6 +159,8 @@ node zcgw-server.mjs        # 只要 Node.js >= 22，无任何 npm install
   "models": ["GLM-5.3-Flash", "GLM-5.3"]
 }
 ```
+
+> 如果客户端需要显式声明模型参数：`contextWindow: 1000000`（上下文 1M）、`maxTokens: 131072`（单次输出上限 128K）。
 </details>
 
 <details>

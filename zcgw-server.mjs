@@ -2297,26 +2297,28 @@ const server = http.createServer((req, res) => {
     const anthropicStyle = url.searchParams.get('api') === 'anthropic';
     const now = Math.floor(Date.now() / 1000);
     const models = [
-      { id: 'GLM-5.3-Flash', name: 'GLM-5.3 Flash' },
-      { id: 'GLM-5.3', name: 'GLM-5.3' },
-      ...(process.env.ZCODE_EXTRA_MODELS || '').split(',').filter(Boolean).map((m) => ({ id: m.trim(), name: m.trim() })),
+      { id: 'GLM-5.3-Flash', name: 'GLM-5.3 Flash', context: 1000000, maxOutput: 131072 },
+      { id: 'GLM-5.3', name: 'GLM-5.3', context: 1000000, maxOutput: 131072 },
+      ...(process.env.ZCODE_EXTRA_MODELS || '').split(',').filter(Boolean).map((m) => ({ id: m.trim(), name: m.trim(), context: 1000000, maxOutput: 131072 })),
     ];
     if (anthropicStyle) {
-      return sendJson(res, 200, { data: models.map((m) => ({ type: 'model', id: m.id, display_name: m.name, created_at: '2026-01-01T00:00:00Z' })) });
+      return sendJson(res, 200, { data: models.map((m) => ({ type: 'model', id: m.id, display_name: m.name, created_at: '2026-01-01T00:00:00Z', context_window: m.context, max_output_tokens: m.maxOutput })) });
     }
     return sendJson(res, 200, {
       object: 'list',
-      data: models.map((m) => ({ id: m.id, object: 'model', created: now, owned_by: 'zcode2api' })),
+      data: models.map((m) => ({ id: m.id, object: 'model', created: now, owned_by: 'zcode2api', context_window: m.context, max_output_tokens: m.maxOutput })),
     });
   }
-  if (req.method === 'POST' && (url.pathname === '/v1/chat/completions' || url.pathname === '/chat/completions')) {
+  // /v1/v1/* 双重前缀兼容：用户 baseUrl 误带 /v1 时（Anthropic adapter 会再拼 /v1/messages）
+  const path1 = url.pathname.replace(/^\/v1\/v1/, '/v1');
+  if (req.method === 'POST' && (path1 === '/v1/chat/completions' || path1 === '/chat/completions')) {
     return handleOpenAIChat(req, res).catch((e) => {
       log('openai handler error:', e);
       if (!res.headersSent) sendJson(res, 500, { error: { message: e.message, type: 'api_error' } });
       else res.end();
     });
   }
-  if (req.method === 'POST' && (url.pathname === '/v1/messages' || url.pathname === '/messages')) {
+  if (req.method === 'POST' && (path1 === '/v1/messages' || path1 === '/messages')) {
     return handleMessages(req, res).catch((e) => {
       log('handler error:', e);
       if (!res.headersSent) sendJson(res, 500, { type: 'error', error: { type: 'api_error', message: e.message } });
