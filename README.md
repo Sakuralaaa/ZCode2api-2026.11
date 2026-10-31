@@ -107,7 +107,7 @@
 
 服务器部署需要 Docker（1 核 1G 起）；本机自用只需 Node.js 22+。三种方式任选：
 
-**① Docker Compose（推荐，服务器）**
+### Docker Compose（推荐，服务器）
 
 ```bash
 git clone https://github.com/angusdevgo/zcode2api.git
@@ -117,14 +117,14 @@ docker compose up -d --build
 
 数据落在宿主机 `./data/`，升级 = `git pull && docker compose up -d --build`。
 
-**② Docker 单容器**
+### Docker 单容器
 
 ```bash
 # 端口只绑本机：公网访问请走反向代理（HTTPS + 访问控制），直接暴露管理面风险高
 docker run -d --name zcode2api -p 127.0.0.1:8787:8787 -v /opt/zcode2api/data:/app/data angusdevgo/zcode2api:latest
 ```
 
-**③ 裸机（零依赖）**
+### 裸机（零依赖）
 
 ```bash
 node zcgw-server.mjs        # 只要 Node.js >= 22，无任何 npm install
