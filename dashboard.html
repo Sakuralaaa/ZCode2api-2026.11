@@ -161,6 +161,9 @@
   .overview-grid.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   @media (max-width: 1100px) { .overview-grid.two { grid-template-columns: 1fr; } }
 
+  /* 隐私模式：昵称列模糊 */
+  body.privacy .acc-subname { filter: blur(4px); user-select: none; }
+
   /* ── 安全面板 ── */
   .sec-toggles { display: flex; flex-direction: column; gap: 10px; margin-bottom: 14px; }
   .switch-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; font-size: 13px; font-weight: 600; }
@@ -402,6 +405,10 @@
   <button class="pill-btn" id="btn-theme" type="button" aria-label="切换浅色或深色外观">
     <svg class="icon icon-sm" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
     <span id="lbl-theme">浅色外观</span>
+  </button>
+  <button class="pill-btn" id="btn-privacy" type="button" aria-label="切换隐私模式（脱敏）" title="隐私模式：脱敏邮箱/手机号/昵称，方便截图分享">
+    <svg class="icon icon-sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+    <span id="lbl-privacy">隐私模式</span>
   </button>
   <div class="seg" role="tablist" aria-label="账号归属筛选">
     <button type="button" data-realm-tab="all" aria-pressed="true">全部 <span class="num" id="tab-cnt-all">0</span></button>
@@ -879,6 +886,32 @@ function applyTheme(t) {
 applyTheme(localStorage.getItem('zcgw_theme') || 'light');
 $('#btn-theme').onclick = () => applyTheme(document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
 
+/* ── 隐私模式（脱敏）：方便截图分享不泄露邮箱/手机号/昵称 ── */
+let privacyOn = localStorage.getItem('zcgw_privacy') === '1';
+function maskIdentity(s) {
+  const str = String(s || '');
+  if (!privacyOn || !str) return str;
+  if (str.includes('@')) {
+    // 邮箱：保留首字符与域名后缀
+    const [local, domain] = str.split('@');
+    return `${local.slice(0, 1)}${'•'.repeat(Math.max(2, Math.min(5, local.length - 1)))}@${domain || '***'}`;
+  }
+  if (/^1\d{10}$/.test(str)) return str.slice(0, 3) + '****' + str.slice(-4);
+  if (/^\d{3}\*{4}\d{4}$/.test(str)) return str;
+  return str.slice(0, 1) + '•••';
+}
+function applyPrivacy() {
+  document.body.classList.toggle('privacy', privacyOn);
+  $('#lbl-privacy').textContent = privacyOn ? '隐私模式 开' : '隐私模式';
+  $('#btn-privacy').classList.toggle('active', privacyOn);
+  localStorage.setItem('zcgw_privacy', privacyOn ? '1' : '0');
+  // 立即重绘当前页
+  if (state.tab === 'accounts') renderAccounts();
+  else if (state.tab === 'dashboard') loadDashboard().catch(() => {});
+  else if (state.tab === 'stats') loadStats(state.statsRange).catch(() => {});
+}
+$('#btn-privacy').onclick = () => { privacyOn = !privacyOn; applyPrivacy(); toast('ok', privacyOn ? '隐私模式已开启' : '隐私模式已关闭', privacyOn ? '邮箱/手机号/昵称已脱敏，可放心截图' : '完整信息已恢复显示'); };
+
 /* ── Toast ── */
 function toast(kind, title, body) {
   const el = document.createElement('div');
@@ -1184,12 +1217,12 @@ function renderAccountSnapshot() {
     }
     const daysStr = minDays.toFixed(1) + ' 天';
 
-    const dispName = acc.identity || friendlySubname(acc);
+    const dispName = maskIdentity(acc.identity || friendlySubname(acc));
 
     return `
       <div style="background:var(--bg-surface-inner); border:1px solid var(--border-subtle); border-radius:14px; padding:12px 14px">
         <div style="display:flex; justify-content:space-between; align-items:center; gap:8px">
-          <span class="truncate" style="font-size:13.5px; font-weight:600; color:var(--text-primary)" title="${esc(dispName)}">${esc(dispName)}</span>
+          <span class="truncate" style="font-size:13.5px; font-weight:600; color:var(--text-primary)" title="">${esc(dispName)}</span>
           <span class="num" style="font-size:12px; font-weight:600; color:${statusColor}; white-space:nowrap">${statusText}</span>
         </div>
         <div style="height:5px; background:var(--bar-track); border-radius:999px; overflow:hidden; margin:8px 0 6px">
@@ -1293,7 +1326,8 @@ function renderAccounts() {
     return `<article class="acc-card">
       <div class="acc-top">
         <div class="acc-id-wrap"><span class="status-dot ${dot}" aria-hidden="true"></span>
-          <div>${primary}<div class="acc-subname">${esc(friendlySubname(acc))}</div></div>
+          <div>${primary.replace(/>([^<]{2,})</g, (m, g1) => '>' + maskIdentity(g1) + '<')}
+            <div class="acc-subname">${esc(maskIdentity(friendlySubname(acc)))}</div></div>
         </div>${realmBadge}
       </div>
       <div class="quota-box">${rows}</div>
@@ -1723,7 +1757,7 @@ function renderStats(j) {
         <td class="num muted">${fmtDate(r.t)}</td>
         <td>${esc(r.key)}</td>
         <td class="num muted">${esc(r.ip || '—')}</td>
-        <td class="truncate" style="max-width:170px">${esc(r.acc)}</td>
+        <td class="truncate" style="max-width:170px">${esc(maskIdentity(r.acc))}</td>
         <td>${esc(r.model)}</td>
         <td class="num">${fmt(r.in)} / ${fmt(r.out)} / ${fmt(r.cacheRead)}</td>
         <td class="num">${r.ms} ms</td>
