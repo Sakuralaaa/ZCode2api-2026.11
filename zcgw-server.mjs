@@ -2355,6 +2355,43 @@ server.listen(PORT, HOST, () => {
   setInterval(refreshQuotaWeights, 10 * 60_000); // 每 10 分钟刷一次权重缓存
   setInterval(savePoolState, 60_000); // 每分钟落盘一次调度状态
 
+  // 周末额度自动抢领：周五 18:00 ～ 周日 24:00（北京时间）每 10 分钟试一轮，
+  // 抢到即停；名额开闸第一时间拿到，避免 1005 名额已用完
+  const WEEKEND_GRAB = (() => {
+    try { return JSON.parse(fs.readFileSync(path.join(DATA_DIR, 'pool-settings.json'), 'utf8')).weekendGrab ?? true; }
+    catch { return true; }
+  })();
+  if (WEEKEND_GRAB) {
+    const grabTick = async () => {
+      try {
+        const bj = new Date(Date.now() + 8 * 3600_000);
+        const day = bj.getUTCDay(), hour = bj.getUTCHours();
+        // 周五(5) 18 点后 / 周六(6) 全天 / 周日(0) 24 点前
+        const inWindow = (day === 5 && hour >= 18) || day === 6 || (day === 0);
+        if (!inWindow) return;
+        // 找缺 promo 的号（有访问资格才领）
+        for (const acc of accounts) {
+          const active = await activeGrants(acc);
+          const kinds = new Set(active.map((p) => describePlan(p.plan_id, p.name).kind));
+          if (kinds.has('promo')) continue;
+          const r = await fetch(`http://127.0.0.1:${PORT}/claim`, {
+            method: 'POST', headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ label: acc.label }),
+          });
+          const j = await safeJson(r);
+          const x = (j.results ?? [])[0] ?? {};
+          if (x.ok && !x.alreadyClaimed) log(`[weekend-grab] ${acc.label} 抢领成功：${x.claimed}`);
+          else if (x.code === 1005) log(`[weekend-grab] ${acc.label} 1005 名额未开/已尽，下轮再试`);
+        }
+      } catch (e) {
+        if (VERBOSE) log('[weekend-grab] tick error:', e.message);
+      }
+    };
+    setInterval(grabTick, 10 * 60_000);
+    setTimeout(grabTick, 15_000);
+    log('weekend-grab: 周末额度自动抢领已启用（周五18:00 起）');
+  }
+
   // 启动后自动补齐身份：先吃本地客户端的 access_token，再拿官方客户档案反查邮箱/手机号
   setTimeout(async () => {
     try {
