@@ -1,0 +1,13 @@
+data/
+node_modules/
+tools/
+*.log
+*.pid
+*.tmp
+accounts.json
+keys.json
+usage.jsonl
+pool-*.json
+security.json
+onboard-flows.json
+.git/

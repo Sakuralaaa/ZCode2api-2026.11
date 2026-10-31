@@ -1,0 +1,1994 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ZCode2API · 控制台</title>
+<style>
+  :root,
+  [data-theme="light"] {
+    --bg-canvas: #fafaf8;
+    --bg-surface: #f2f1ee;
+    --bg-surface-inner: #ffffff;
+    --bg-surface-hover: #eae8e3;
+    --bg-elevated: rgba(255, 255, 255, 0.9);
+    --border-subtle: rgba(20, 20, 19, 0.07);
+    --border-strong: rgba(20, 20, 19, 0.14);
+    --border-focus: #d96b16;
+    --text-primary: #141413;
+    --text-secondary: #5f5e59;
+    --text-muted: #8c8a82;
+    --brand: #d96b16;
+    --brand-hover: #c25d10;
+    --brand-soft: #f7e6d5;
+    --brand-text: #9a4708;
+    --ok: #0d9456;
+    --ok-soft: #e3f5ec;
+    --ok-border: rgba(13, 148, 86, 0.22);
+    --daily: #0277bd;
+    --daily-soft: #e1f1fb;
+    --daily-border: rgba(2, 119, 189, 0.22);
+    --warn: #d97706;
+    --warn-soft: #fef3c7;
+    --warn-border: rgba(217, 119, 6, 0.26);
+    --bad: #dc2626;
+    --bad-soft: #fee2e2;
+    --bad-border: rgba(220, 38, 38, 0.24);
+    --shadow-card: 0 1px 2px rgba(20, 20, 19, 0.03);
+    --shadow-float: 0 12px 36px rgba(20, 20, 19, 0.10), 0 2px 8px rgba(20, 20, 19, 0.05);
+    --scrim: rgba(20, 20, 19, 0.42);
+    --bar-track: #e7e5e0;
+  }
+  [data-theme="dark"] {
+    --bg-canvas: #0b0c0e;
+    --bg-surface: #131519;
+    --bg-surface-inner: #191c22;
+    --bg-surface-hover: #21252d;
+    --bg-elevated: rgba(25, 28, 34, 0.9);
+    --border-subtle: rgba(255, 255, 255, 0.07);
+    --border-strong: rgba(255, 255, 255, 0.14);
+    --border-focus: #f59e0b;
+    --text-primary: #f2f3f5;
+    --text-secondary: #9ca1ab;
+    --text-muted: #6c717b;
+    --brand: #f59e0b;
+    --brand-hover: #d97706;
+    --brand-soft: rgba(245, 158, 11, 0.15);
+    --brand-text: #fbbf24;
+    --ok: #10b981;
+    --ok-soft: rgba(16, 185, 129, 0.14);
+    --ok-border: rgba(16, 185, 129, 0.28);
+    --daily: #38bdf8;
+    --daily-soft: rgba(56, 189, 248, 0.14);
+    --daily-border: rgba(56, 189, 248, 0.28);
+    --warn: #fbbf24;
+    --warn-soft: rgba(251, 191, 36, 0.15);
+    --warn-border: rgba(251, 191, 36, 0.3);
+    --bad: #f87171;
+    --bad-soft: rgba(248, 113, 113, 0.15);
+    --bad-border: rgba(248, 113, 113, 0.3);
+    --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.25);
+    --shadow-float: 0 16px 40px rgba(0, 0, 0, 0.55), 0 2px 10px rgba(0, 0, 0, 0.35);
+    --scrim: rgba(5, 6, 8, 0.7);
+    --bar-track: #262a32;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg-canvas); color: var(--text-primary); }
+  body {
+    font: 14px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+    padding: 22px 32px 108px;
+    max-width: 1520px;
+    margin: 0 auto;
+    overflow-x: hidden;
+  }
+  @media (max-width: 640px) { body { padding: 14px 14px 100px; } }
+
+  button, input, a, [tabindex="0"] {
+    transition: background-color 150ms cubic-bezier(0.16, 1, 0.3, 1),
+                border-color 150ms cubic-bezier(0.16, 1, 0.3, 1),
+                color 150ms cubic-bezier(0.16, 1, 0.3, 1),
+                opacity 150ms cubic-bezier(0.16, 1, 0.3, 1),
+                transform 120ms cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  button:focus-visible, input:focus-visible, a:focus-visible, [tabindex="0"]:focus-visible, select:focus-visible {
+    outline: 2px solid var(--border-focus);
+    outline-offset: 2px;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+  }
+
+  .num { font-variant-numeric: tabular-nums; }
+  .truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .muted { color: var(--text-secondary); }
+  .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
+  .icon { width: 16px; height: 16px; stroke: currentColor; stroke-width: 1.75; fill: none; flex: none; }
+  .icon-sm { width: 14px; height: 14px; }
+
+  /* ── Top utility bar ── */
+  .topbar { display: flex; justify-content: flex-end; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
+  .pill-btn {
+    display: inline-flex; align-items: center; gap: 8px; height: 36px; padding: 0 14px;
+    border-radius: 999px; background: var(--bg-surface); border: 1px solid var(--border-subtle);
+    color: var(--text-secondary); font-size: 13px; font-weight: 500; cursor: pointer;
+  }
+  .pill-btn:hover { background: var(--bg-surface-hover); color: var(--text-primary); }
+  .kbd {
+    display: inline-block; padding: 1px 7px; border-radius: 999px; background: var(--bg-surface-inner);
+    border: 1px solid var(--border-subtle); font-size: 12px; color: var(--text-muted);
+    font-family: ui-monospace, "SF Mono", Consolas, monospace;
+  }
+
+  /* ── Tab bar 移除，合并入底栏 ── */
+  .tabbar { display: none !important; }
+
+  .panel { display: none; }
+  .panel.active { display: block; }
+
+  .page-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; flex-wrap: wrap; margin-bottom: 18px; }
+  .page-head h1 { font-size: 23px; font-weight: 700; letter-spacing: -0.02em; margin: 0 0 4px; text-wrap: balance; }
+  .page-head p { margin: 0; color: var(--text-secondary); font-size: 13px; text-wrap: pretty; }
+
+  /* ── KPI ── */
+  .kpi-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 14px; margin-bottom: 16px; }
+  @media (max-width: 1480px) { .kpi-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+  @media (max-width: 1000px) { .kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  @media (max-width: 640px) { .kpi-grid { grid-template-columns: 1fr; } }
+  .kpi-grid.four { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  @media (max-width: 1180px) { .kpi-grid.four { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  @media (max-width: 640px) { .kpi-grid.four { grid-template-columns: 1fr; } }
+  .bento { background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: 18px; padding: 18px 20px; }
+  .kpi-top { display: flex; justify-content: space-between; align-items: center; color: var(--text-secondary); font-size: 13px; font-weight: 500; margin-bottom: 10px; }
+  .kpi-ico {
+    width: 32px; height: 32px; border-radius: 999px; background: var(--bg-surface-inner);
+    border: 1px solid var(--border-subtle); display: inline-flex; align-items: center; justify-content: center; color: var(--text-secondary);
+  }
+  .kpi-ico.ok { color: var(--ok); } .kpi-ico.brand { color: var(--brand); } .kpi-ico.daily { color: var(--daily); }
+  .kpi-val {
+    font-size: clamp(23px, 1.75vw, 28px); font-weight: 700; letter-spacing: -0.03em; line-height: 1.15;
+    margin-bottom: 8px; display: flex; align-items: baseline; gap: 8px; row-gap: 5px; flex-wrap: wrap;
+  }
+  .kpi-val.ok { color: var(--ok); } .kpi-val.brand { color: var(--brand); } .kpi-val.daily { color: var(--daily); }
+  .kpi-pill { font-size: 12px; font-weight: 600; padding: 1px 7px; border-radius: 999px; background: var(--brand-soft); color: var(--brand-text); white-space: nowrap; }
+  .kpi-sub { font-size: 12px; color: var(--text-secondary); line-height: 1.45; text-wrap: pretty; }
+  .kpi-sub.ok { color: var(--ok); font-weight: 500; } .kpi-sub.brand { color: var(--brand); }
+
+  .overview-grid { display: grid; grid-template-columns: 2fr 1fr; gap: 14px; margin-bottom: 16px; }
+  @media (max-width: 1100px) { .overview-grid { grid-template-columns: 1fr; } }
+  .overview-grid.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  @media (max-width: 1100px) { .overview-grid.three { grid-template-columns: 1fr; } }
+  .overview-grid.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  @media (max-width: 1100px) { .overview-grid.two { grid-template-columns: 1fr; } }
+
+  /* ── 安全面板 ── */
+  .sec-toggles { display: flex; flex-direction: column; gap: 10px; margin-bottom: 14px; }
+  .switch-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; font-size: 13px; font-weight: 600; }
+  .switch-hint { display: block; font-size: 12px; color: var(--text-secondary); font-weight: 400; margin-top: 2px; }
+  .toggle { width: 44px; height: 25px; border-radius: 13px; border: 1px solid var(--border-strong); background: var(--bg-inset); position: relative; cursor: pointer; flex: none; transition: background .18s; }
+  .toggle i { position: absolute; top: 2px; left: 2px; width: 19px; height: 19px; border-radius: 50%; background: var(--text-secondary); transition: transform .18s, background .18s; }
+  .toggle.on { background: var(--ok); border-color: var(--ok); }
+  .toggle.on i { transform: translateX(19px); background: #fff; }
+  .sec-add-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+  .btn-danger { color: var(--bad, #d92d20); border-color: var(--bad, #d92d20); }
+  .bento-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 14px; }
+  .bento-title { display: inline-flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 700; }
+  .bento-meta { font-size: 12px; color: var(--text-secondary); }
+
+  .subcards-3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+  @media (max-width: 760px) { .subcards-3 { grid-template-columns: 1fr; } }
+  .subcard { background: var(--bg-surface-inner); border: 1px solid var(--border-subtle); border-radius: 14px; padding: 14px 16px; }
+  .subcard-lbl { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 12px; color: var(--text-secondary); margin-bottom: 6px; }
+  .subcard-val { font-size: 21px; font-weight: 700; letter-spacing: -0.02em; margin-bottom: 6px; }
+  .subcard-foot { display: flex; justify-content: space-between; font-size: 12px; color: var(--text-muted); margin-top: 6px; }
+  .bar { height: 6px; background: var(--bar-track); border-radius: 999px; overflow: hidden; }
+  .bar > i { display: block; height: 100%; border-radius: 999px; background: var(--ok); }
+  .bar.brand > i { background: var(--brand); }
+  .bar.daily > i { background: var(--daily); }
+
+  .gw-list { display: flex; flex-direction: column; gap: 9px; }
+  .gw-row { display: flex; justify-content: space-between; align-items: center; font-size: 13px; color: var(--text-secondary); }
+  .gw-row b { color: var(--text-primary); font-weight: 600; font-variant-numeric: tabular-nums; }
+  .gw-row b.ok { color: var(--ok); }
+  .gw-row b.warn { color: var(--warn); }
+
+  /* ── Buttons ── */
+  .toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 38px;
+    padding: 0 15px; border-radius: 10px; background: var(--bg-surface); border: 1px solid var(--border-subtle);
+    color: var(--text-primary); font-size: 13px; font-weight: 500; cursor: pointer; white-space: nowrap;
+  }
+  .btn:hover:not(:disabled) { background: var(--bg-surface-hover); border-color: var(--border-strong); }
+  .btn:active:not(:disabled) { transform: scale(0.985); }
+  .btn:disabled { opacity: .45; cursor: not-allowed; }
+  .btn-primary { background: var(--text-primary); color: var(--bg-canvas); border-color: var(--text-primary); font-weight: 600; }
+  .btn-primary:hover:not(:disabled) { opacity: .9; background: var(--text-primary); }
+  .btn-brand { background: var(--brand); color: #fff; border-color: var(--brand); font-weight: 600; }
+  .btn-brand:hover:not(:disabled) { background: var(--brand-hover); border-color: var(--brand-hover); }
+  .btn-sm { min-height: 32px; padding: 0 11px; font-size: 12.5px; border-radius: 8px; }
+  .btn-danger { color: var(--bad); border-color: var(--bad-border); background: var(--bad-soft); }
+  .btn-danger:hover:not(:disabled) { background: var(--bad-soft); border-color: var(--bad); }
+  .link-btn { background: none; border: none; padding: 0; color: var(--brand); font-size: inherit; font-weight: 600; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+  .link-btn:hover { color: var(--brand-hover); }
+
+  /* ── Segment control ── */
+  .seg { display: inline-flex; align-items: center; padding: 3px; border-radius: 999px; background: var(--bg-surface); border: 1px solid var(--border-subtle); gap: 2px; }
+  .seg > button {
+    height: 30px; padding: 0 14px; border-radius: 999px; border: none; background: transparent;
+    color: var(--text-secondary); font-size: 12.5px; font-weight: 600; cursor: pointer;
+  }
+  .seg > button:hover { color: var(--text-primary); }
+  .seg > button[aria-pressed="true"] { background: var(--bg-surface-inner); color: var(--text-primary); box-shadow: var(--shadow-card); }
+
+  /* ── Table ── */
+  .table-wrap { background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: 18px; overflow: hidden; }
+  .table-scroll { overflow-x: auto; }
+  table.tbl { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 720px; }
+  table.tbl th {
+    text-align: left; font-weight: 600; font-size: 12px; color: var(--text-secondary);
+    padding: 12px 14px; background: var(--bg-surface-inner); border-bottom: 1px solid var(--border-subtle); white-space: nowrap;
+  }
+  table.tbl td { padding: 12px 14px; border-bottom: 1px solid var(--border-subtle); vertical-align: middle; }
+  table.tbl tr:last-child td { border-bottom: none; }
+  table.tbl tbody tr:hover td { background: var(--bg-surface-hover); }
+  .mono { font-family: ui-monospace, "SF Mono", Consolas, monospace; font-size: 12.5px; }
+  .row-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+
+  .badge {
+    display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 9px; border-radius: 999px;
+    font-size: 12px; font-weight: 600; white-space: nowrap; border: 1px solid transparent;
+  }
+  .badge-cn { background: var(--brand-soft); color: var(--brand-text); border-color: var(--warn-border); }
+  .badge-intl { background: var(--daily-soft); color: var(--daily); border-color: var(--daily-border); }
+  .badge-unknown { background: var(--warn-soft); color: var(--warn); border-color: var(--warn-border); cursor: pointer; }
+  .badge-promo { background: var(--brand-soft); color: var(--brand-text); }
+  .badge-daily { background: var(--daily-soft); color: var(--daily); }
+  .badge-paid, .badge-offpeak, .badge-other { background: var(--ok-soft); color: var(--ok); }
+  .badge-ok { background: var(--ok-soft); color: var(--ok); border-color: var(--ok-border); }
+  .badge-off { background: var(--bg-surface-hover); color: var(--text-muted); }
+  .badge-warn { background: var(--warn-soft); color: var(--warn); border-color: var(--warn-border); }
+  .badge-bad { background: var(--bad-soft); color: var(--bad); border-color: var(--bad-border); }
+  .badge-plain { background: var(--bg-surface-inner); color: var(--text-secondary); border-color: var(--border-subtle); }
+
+  /* ── Chart ── */
+  .chart { display: flex; align-items: flex-end; gap: 2px; height: 120px; margin-top: 6px; }
+  .chart .col { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; justify-content: flex-end; height: 100%; position: relative; }
+  .chart .col > i {
+    display: block; width: 100%; max-width: 16px; margin: 0 auto;
+    background: var(--brand); border-radius: 3px 3px 0 0; opacity: .85; min-height: 0;
+  }
+  .chart .col:hover > i { opacity: 1; }
+  .chart .col.has-fail > i { background: var(--bad); }
+  .chart-x { display: flex; justify-content: space-between; font-size: 12px; color: var(--text-muted); margin-top: 6px; }
+  .chart-empty { display: flex; align-items: center; justify-content: center; height: 120px; color: var(--text-muted); font-size: 12.5px; }
+
+  /* ── Accounts ── */
+  .filter-strip { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+  .group-pills { display: flex; gap: 6px; flex-wrap: wrap; }
+  .group-pill {
+    display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 13px; border-radius: 999px;
+    background: var(--bg-surface); border: 1px solid var(--border-subtle); color: var(--text-secondary);
+    font-size: 12.5px; font-weight: 500; cursor: pointer;
+  }
+  .group-pill[aria-pressed="true"] { background: var(--text-primary); color: var(--bg-canvas); border-color: var(--text-primary); font-weight: 600; }
+  .search-box { position: relative; width: 260px; flex: 0 0 260px; }
+  @media (max-width: 640px) { .search-box { width: 100%; flex: 1 1 100%; } }
+  .search-box input {
+    width: 100%; height: 34px; padding: 0 12px 0 32px; border-radius: 999px; background: var(--bg-surface);
+    border: 1px solid var(--border-subtle); color: var(--text-primary); font-size: 12.5px;
+  }
+  .search-box svg { position: absolute; left: 11px; top: 50%; transform: translateY(-50%); color: var(--text-muted); pointer-events: none; }
+
+  .acc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(430px, 1fr)); gap: 14px; }
+  @media (max-width: 520px) { .acc-grid { grid-template-columns: 1fr; } }
+  .acc-card { background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: 18px; padding: 18px; display: flex; flex-direction: column; gap: 12px; }
+  .acc-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+  .acc-id-wrap { display: flex; align-items: center; gap: 10px; min-width: 0; }
+  .status-dot { width: 10px; height: 10px; border-radius: 999px; background: var(--ok); flex: none; box-shadow: 0 0 0 3px var(--ok-soft); }
+  .status-dot.warn { background: var(--warn); box-shadow: 0 0 0 3px var(--warn-soft); }
+  .acc-ident { font-size: 16px; font-weight: 700; letter-spacing: -0.01em; }
+  .acc-ident-btn {
+    background: var(--warn-soft); color: var(--warn); border: 1px dashed var(--warn-border); border-radius: 8px;
+    padding: 4px 10px; font-size: 13px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;
+  }
+  .acc-subname { font-size: 12px; color: var(--text-muted); margin-top: 1px; }
+  .quota-box { background: var(--bg-surface-inner); border: 1px solid var(--border-subtle); border-radius: 14px; padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
+  .q-item { display: flex; flex-direction: column; gap: 5px; }
+  .q-item + .q-item { padding-top: 9px; border-top: 1px solid var(--border-subtle); }
+  .q-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 12.5px; }
+  .q-left { display: flex; align-items: center; gap: 7px; min-width: 0; font-weight: 600; }
+  .q-right { font-size: 12.5px; color: var(--text-secondary); white-space: nowrap; }
+  .q-right b { color: var(--text-primary); }
+  .plan-strip { display: flex; flex-wrap: wrap; gap: 6px; }
+  .plan-tag {
+    display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; border-radius: 8px;
+    background: var(--bg-surface-inner); border: 1px solid var(--border-subtle); font-size: 12px; color: var(--text-secondary);
+  }
+  .plan-tag i { width: 6px; height: 6px; border-radius: 999px; background: var(--ok); }
+  .acc-foot { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: auto; padding-top: 4px; }
+  .acc-meta { font-size: 12px; color: var(--text-secondary); }
+  .acc-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+  .ident-hint {
+    display: flex; align-items: flex-start; gap: 7px; padding: 9px 12px; border-radius: 10px;
+    background: var(--warn-soft); border: 1px solid var(--warn-border); color: var(--warn); font-size: 12.5px; line-height: 1.5;
+  }
+  .ident-hint svg { margin-top: 2px; }
+
+  .onboard-card { background: var(--bg-surface); border: 1.5px solid var(--brand); border-radius: 18px; padding: 18px 20px; margin-bottom: 16px; }
+  .empty-state { background: var(--bg-surface); border: 1px dashed var(--border-strong); border-radius: 18px; padding: 36px 24px; text-align: center; color: var(--text-secondary); }
+
+  /* ── Dock (完全参考 wb2api 的悬浮底栏) ── */
+  .dock-wrap { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); z-index: 40; }
+  .dock {
+    display: inline-flex; align-items: center; gap: 4px; padding: 5px 8px; border-radius: 999px;
+    background: var(--bg-elevated); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+    border: 1px solid var(--border-strong); box-shadow: var(--shadow-float);
+  }
+  .dock-btn {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 40px; height: 40px; border-radius: 999px; border: 1px solid transparent;
+    background: transparent; color: var(--text-secondary); cursor: pointer; position: relative;
+  }
+  .dock-btn:hover { background: var(--bg-surface-hover); color: var(--text-primary); }
+  .dock-btn.active {
+    background: #d1fae5; color: #047857; border-color: #a7f3d0;
+  }
+  [data-theme="dark"] .dock-btn.active {
+    background: rgba(16, 185, 129, 0.2); color: #34d399; border-color: rgba(16, 185, 129, 0.4);
+  }
+  .dock-sep { width: 1px; height: 20px; background: var(--border-subtle); margin: 0 2px; }
+
+  /* ── Toast ── */
+  #toasts {
+    position: fixed; top: 18px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column;
+    gap: 8px; z-index: 50; align-items: center; pointer-events: none; width: max-content; max-width: 92vw;
+  }
+  .toast {
+    pointer-events: auto; display: flex; align-items: flex-start; gap: 10px; min-width: 280px;
+    max-width: min(560px, 92vw); background: var(--bg-surface-inner); border: 1px solid var(--border-strong);
+    border-radius: 14px; padding: 12px 16px; color: var(--text-primary); box-shadow: var(--shadow-float);
+    animation: toast-in 160ms cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .toast-ico { width: 22px; height: 22px; border-radius: 999px; display: inline-flex; align-items: center; justify-content: center; flex: none; margin-top: 1px; }
+  .toast.ok .toast-ico { background: var(--ok-soft); color: var(--ok); }
+  .toast.warn .toast-ico { background: var(--warn-soft); color: var(--warn); }
+  .toast.err .toast-ico { background: var(--bad-soft); color: var(--bad); }
+  .toast .t-title { font-weight: 600; font-size: 13.5px; }
+  .toast .t-body { color: var(--text-secondary); font-size: 12.5px; margin-top: 2px; }
+  @keyframes toast-in { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
+
+  /* ── Modal ── */
+  .modal-bg {
+    position: fixed; inset: 0; background: var(--scrim); backdrop-filter: blur(4px);
+    display: flex; align-items: center; justify-content: center; z-index: 45; padding: 16px;
+  }
+  .modal {
+    background: var(--bg-surface-inner); border: 1px solid var(--border-strong); border-radius: 18px;
+    padding: 22px; width: min(620px, 94vw); max-height: 86vh; overflow-y: auto; box-shadow: var(--shadow-float);
+  }
+  .modal .grid-2 {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 10px 14px; align-items: start;
+  }
+  @media (max-width: 640px) { .modal .grid-2 { grid-template-columns: 1fr; } }
+  .modal .sect-label {
+    font-size: 12.5px; font-weight: 700; color: var(--brand); margin: 14px 0 4px;
+    grid-column: 1 / -1;
+  }
+  .modal .hint { font-size: 12px; color: var(--text-muted); margin-top: 3px; line-height: 1.4; }
+  .modal h3 { margin: 0 0 6px; font-size: 17px; font-weight: 700; }
+  .modal p { margin: 0 0 14px; color: var(--text-secondary); font-size: 13px; }
+  .modal label { display: block; font-size: 12.5px; font-weight: 600; color: var(--text-secondary); margin: 12px 0 6px; }
+  .modal input, .modal select {
+    width: 100%; height: 40px; background: var(--bg-surface); border: 1px solid var(--border-subtle);
+    border-radius: 10px; color: var(--text-primary); padding: 0 12px; font-size: 14px;
+  }
+  .modal .hint { font-size: 12px; color: var(--text-muted); margin-top: 5px; }
+  .modal-foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px; }
+  pre.codebox {
+    background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: 12px;
+    padding: 12px 14px; font-size: 12px; overflow-x: auto; margin: 8px 0 0; color: var(--text-primary);
+    font-family: ui-monospace, "SF Mono", Consolas, monospace; word-break: break-all; white-space: pre-wrap;
+  }
+</style>
+</head>
+<body>
+
+<header class="topbar" role="banner">
+  <button class="pill-btn" id="btn-cmdk" type="button" aria-label="打开快捷命令面板">
+    <svg class="icon icon-sm" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+    <span>搜索与命令</span><span class="kbd">Ctrl K</span>
+  </button>
+  <button class="pill-btn" id="btn-theme" type="button" aria-label="切换浅色或深色外观">
+    <svg class="icon icon-sm" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+    <span id="lbl-theme">浅色外观</span>
+  </button>
+  <div class="seg" role="tablist" aria-label="账号归属筛选">
+    <button type="button" data-realm-tab="all" aria-pressed="true">全部 <span class="num" id="tab-cnt-all">0</span></button>
+    <button type="button" data-realm-tab="cn" aria-pressed="false">国内 <span class="num" id="tab-cnt-cn">0</span></button>
+    <button type="button" data-realm-tab="intl" aria-pressed="false">国际 <span class="num" id="tab-cnt-intl">0</span></button>
+  </div>
+</header>
+
+<main>
+  <!-- ══════ 仪表盘 ══════ -->
+  <section class="panel active" id="panel-dashboard" role="tabpanel" aria-labelledby="tab-dashboard">
+    <div class="page-head">
+      <div>
+        <h1>仪表盘</h1>
+        <p id="dash-sub">账号池健康度、反代网关与今日用量总览（每 30 秒自动刷新）</p>
+      </div>
+    </div>
+
+    <div class="kpi-grid">
+      <div class="bento">
+        <div class="kpi-top"><span>账号总数</span>
+          <span class="kpi-ico" aria-hidden="true"><svg class="icon" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg></span>
+        </div>
+        <div class="kpi-val num" id="kpi-total">—</div>
+        <div class="kpi-sub" id="kpi-total-sub">正在读取账号池…</div>
+      </div>
+      <div class="bento">
+        <div class="kpi-top"><span>有效期内</span>
+          <span class="kpi-ico ok" aria-hidden="true"><svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m9 12 2 2 4-4"/></svg></span>
+        </div>
+        <div class="kpi-val ok num" id="kpi-avail">—</div>
+        <div class="kpi-sub ok" id="kpi-avail-sub">—</div>
+      </div>
+      <div class="bento">
+        <div class="kpi-top"><span>即将过期</span>
+          <span class="kpi-ico" style="color:var(--ok)" aria-hidden="true"><svg class="icon" viewBox="0 0 24 24"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></span>
+        </div>
+        <div class="kpi-val ok num" id="kpi-expiring">0</div>
+        <div class="kpi-sub" id="kpi-expiring-sub">暂无风险</div>
+      </div>
+      <div class="bento">
+        <div class="kpi-top"><span>臭鸡蛋余额</span>
+          <span class="kpi-ico brand" aria-hidden="true"><svg class="icon" viewBox="0 0 24 24"><path d="M20 12v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-8"/><rect x="2" y="7" width="20" height="5" rx="1"/><path d="M12 22V7M12 7H7.5a2.5 2.5 0 1 1 0-5C11 2 12 7 12 7ZM12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7Z"/></svg></span>
+        </div>
+        <div class="kpi-val brand num">
+          <span id="kpi-promo">—</span>
+          <span class="kpi-pill" id="kpi-promo-pill" style="display:none"></span>
+        </div>
+        <div class="kpi-sub brand" id="kpi-promo-sub">GLM-5.3-Flash 专项额度</div>
+      </div>
+      <div class="bento">
+        <div class="kpi-top"><span>今日 Token</span>
+          <span class="kpi-ico daily" aria-hidden="true"><svg class="icon" viewBox="0 0 24 24"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8Z"/></svg></span>
+        </div>
+        <div class="kpi-val daily num" id="kpi-today">—</div>
+        <div class="kpi-sub" id="kpi-today-sub">—</div>
+      </div>
+    </div>
+
+    <!-- 近 14 天调用趋势 + 反代上游 -->
+    <div class="overview-grid" style="grid-template-columns: 2fr 1fr; margin-bottom: 16px">
+      <div class="bento" style="display:flex; flex-direction:column; justify-content:space-between">
+        <div>
+          <div class="bento-head">
+            <div class="bento-title">
+              <span>近 14 天调用趋势</span>
+            </div>
+            <span class="bento-meta" id="trend-14d-meta">近 14 天 0 次失败 · 全部版本</span>
+          </div>
+          <div id="trend-14d-chart" style="height: 220px"></div>
+        </div>
+      </div>
+
+      <div class="bento">
+        <div class="bento-head">
+          <div class="bento-title">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="3" width="20" height="7" rx="2"/><rect x="2" y="14" width="20" height="7" rx="2"/><circle cx="6" cy="6.5" r="1"/><circle cx="6" cy="17.5" r="1"/></svg>
+            <span>反代上游</span>
+          </div>
+          <span class="bento-meta">127.0.0.1:8787</span>
+        </div>
+        <div class="gw-list">
+          <div class="gw-row"><span>连接状态</span><b class="ok">● 正常</b></div>
+          <div class="gw-row"><span>健康账号</span><b id="gw-healthy">—</b></div>
+          <div class="gw-row"><span>冷却中</span><b id="gw-cooling">0</b></div>
+          <div class="gw-row"><span>连败降权</span><b id="gw-degraded">0</b></div>
+          <div class="gw-row"><span>已禁用</span><b id="gw-disabled">0</b></div>
+          <div class="gw-row"><span>在途请求</span><b id="gw-inflight">0</b></div>
+          <div class="gw-row"><span>粘性会话</span><b id="gw-sticky">0</b></div>
+          <div class="gw-row"><span>对外密钥</span><b id="gw-keys">0</b></div>
+          <div class="gw-row"><span>默认模型</span><b id="gw-model">GLM-5.3-Flash</b></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 额度分类总览 (对应 wb2api 的积分收支卡片位置) -->
+    <div class="bento" style="margin-bottom: 16px">
+      <div class="bento-head">
+        <div class="bento-title">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="3"/><path d="M3 9h18M9 21V9"/></svg>
+          <span>额度分类总览</span>
+        </div>
+        <span class="bento-meta" id="quota-meta">按套餐类型与模型实时聚合</span>
+      </div>
+      <div class="subcards-3" id="quota-subcards"><div class="subcard"><div class="subcard-lbl">正在加载…</div></div></div>
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-top:14px;padding-top:12px;border-top:1px solid var(--border-subtle);font-size:12.5px;color:var(--text-secondary)">
+        <span>同会话 30 分钟粘性路由（保 prompt 缓存命中）；遇限流自动换号</span>
+        <span class="num" id="last-sync">—</span>
+      </div>
+    </div>
+
+    <!-- 账号健康快照 (底栏 3 列网格卡片) -->
+    <div class="bento">
+      <div class="bento-head">
+        <div class="bento-title">
+          <span>账号健康快照</span>
+          <span class="num" id="snap-online" style="font-size: 12px; font-weight: 600; color: var(--ok); margin-left: 6px">● 在线 0</span>
+          <span class="num" id="snap-cooling" style="font-size: 12px; font-weight: 600; color: var(--warn); margin-left: 4px">● 冷却中 0</span>
+        </div>
+        <button type="button" class="btn btn-sm" onclick="goTab('accounts')" style="height: 28px; padding: 0 10px; font-size: 12px">管理账号 →</button>
+      </div>
+      <div id="acc-snapshot-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px"></div>
+    </div>
+  </section>
+
+  <!-- ══════ 账号 ══════ -->
+  <section class="panel" id="panel-accounts" role="tabpanel" aria-labelledby="tab-accounts">
+    <div class="page-head">
+      <div>
+        <h1>账号管理</h1>
+        <p>国内显示脱敏手机号，国际显示邮箱；展示每项额度剩余与到期时间</p>
+      </div>
+      <div class="toolbar">
+        <button class="btn" id="btn-reset" type="button">
+          <svg class="icon icon-sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+          <span>解除冷却</span>
+        </button>
+        <button class="btn" id="btn-refresh" type="button">
+          <svg class="icon icon-sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 16h5v5"/></svg>
+          <span>刷新余额</span>
+        </button>
+        <button class="btn" id="btn-claim-all" type="button">
+          <svg class="icon icon-sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-8"/><rect x="2" y="7" width="20" height="5" rx="1"/><path d="M12 22V7"/></svg>
+          <span>一键领取全部</span>
+        </button>
+        <button class="btn" id="btn-pool-settings" type="button">
+          <svg class="icon icon-sm" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z"/></svg>
+          <span>轮换设置</span>
+        </button>
+        <button class="btn" id="btn-paste-jwt" type="button">
+          <svg class="icon icon-sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/></svg>
+          <span>粘贴 Token</span>
+        </button>
+        <button class="btn btn-brand" id="btn-onboard" type="button">
+          <svg class="icon icon-sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+          <span>登录新账号并领取</span>
+        </button>
+      </div>
+    </div>
+
+    <div id="onboard-box" hidden></div>
+
+    <div class="filter-strip">
+      <div class="group-pills" role="group" aria-label="账号分组筛选">
+        <button class="group-pill" data-filter="all" aria-pressed="true" type="button">全部账号</button>
+        <button class="group-pill" data-filter="cn" aria-pressed="false" type="button">国内 · 手机号</button>
+        <button class="group-pill" data-filter="intl" aria-pressed="false" type="button">国际 · 邮箱</button>
+        <button class="group-pill" data-filter="unset" aria-pressed="false" type="button">待设置身份</button>
+      </div>
+      <div class="search-box">
+        <svg class="icon icon-sm" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <label for="inp-search" class="sr-only">筛选账号</label>
+        <input id="inp-search" type="search" placeholder="筛选手机号、邮箱或备注…">
+      </div>
+    </div>
+
+    <div class="acc-grid" id="acc-grid"></div>
+  </section>
+
+  <!-- ══════ 密钥 ══════ -->
+  <section class="panel" id="panel-keys" role="tabpanel" aria-labelledby="tab-keys">
+    <div class="page-head">
+      <div>
+        <h1>API 密钥</h1>
+        <p>对外反代网关的分发密钥，支持版本限定、有效期、IP 白名单、模型白名单与配额</p>
+      </div>
+      <div class="toolbar">
+        <button class="btn btn-brand" id="btn-new-key" type="button">
+          <svg class="icon icon-sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+          <span>新建密钥</span>
+        </button>
+      </div>
+    </div>
+
+    <div class="filter-strip">
+      <div class="group-pills">
+        <span class="group-pill" aria-pressed="true" style="cursor:default">普通密钥 · <b class="num" id="key-count">0</b></span>
+        <span class="group-pill" aria-pressed="false" style="cursor:default">总用量 · <b class="num" id="key-used">0</b> tokens</span>
+      </div>
+      <span class="muted" style="font-size:12.5px" id="key-mode"></span>
+    </div>
+
+    <div class="table-wrap">
+      <div class="table-scroll">
+        <table class="tbl">
+          <thead>
+            <tr>
+              <th>名称</th><th>密钥前缀</th><th>状态</th><th>版本</th><th>有效期</th>
+              <th>IP / 模型</th><th>已用 Token</th><th>最近使用</th><th>操作</th>
+            </tr>
+          </thead>
+          <tbody id="key-rows">
+            <tr><td colspan="9" class="muted">加载中…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="bento" style="margin-top:16px">
+      <div class="bento-head">
+        <div class="bento-title">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m16 18 6-6-6-6M8 6l-6 6 6 6"/></svg>
+          <span>客户端接入方式</span>
+        </div>
+      </div>
+      <p class="muted" style="margin:0 0 8px;font-size:13px">新建密钥后完整 key 只显示一次，请立即复制。pi 用 <span class="mono">x-api-key</span>，其它 SDK 用 <span class="mono">Authorization: Bearer</span>，两种都认。</p>
+      <pre class="codebox" id="key-sample"></pre>
+    </div>
+  </section>
+
+  <!-- ══════ 用量统计 ══════ -->
+  <section class="panel" id="panel-stats" role="tabpanel" aria-labelledby="tab-stats">
+    <div class="page-head">
+      <div>
+        <h1>用量统计</h1>
+        <p id="stats-sub">按时间、模型与密钥维度统计 Token 消耗与请求量</p>
+      </div>
+      <div class="toolbar">
+        <div class="seg" role="group" aria-label="统计范围">
+          <button type="button" data-range="today" aria-pressed="true">今日</button>
+          <button type="button" data-range="7d" aria-pressed="false">近 7 天</button>
+          <button type="button" data-range="30d" aria-pressed="false">近 30 天</button>
+        </div>
+        <button class="btn" id="btn-stats-refresh" type="button">
+          <svg class="icon icon-sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 16h5v5"/></svg>
+          <span>刷新</span>
+        </button>
+      </div>
+    </div>
+
+    <div class="kpi-grid four">
+      <div class="bento">
+        <div class="kpi-top"><span>请求数</span><span class="kpi-ico"><svg class="icon" viewBox="0 0 24 24"><path d="M3 12h4l3-9 4 18 3-9h4"/></svg></span></div>
+        <div class="kpi-val num" id="st-req">—</div>
+        <div class="kpi-sub" id="st-req-sub">—</div>
+      </div>
+      <div class="bento">
+        <div class="kpi-top"><span>Token 总量</span><span class="kpi-ico brand"><svg class="icon" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h10"/></svg></span></div>
+        <div class="kpi-val brand num" id="st-tokens">—</div>
+        <div class="kpi-sub" id="st-tokens-sub">—</div>
+      </div>
+      <div class="bento">
+        <div class="kpi-top"><span>缓存命中率</span><span class="kpi-ico ok"><svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m9 12 2 2 4-4"/></svg></span></div>
+        <div class="kpi-val ok num" id="st-cache">—</div>
+        <div class="kpi-sub" id="st-cache-sub">prompt 缓存命中占比</div>
+      </div>
+      <div class="bento">
+        <div class="kpi-top"><span>平均延迟</span><span class="kpi-ico"><svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span></div>
+        <div class="kpi-val num" id="st-latency">—</div>
+        <div class="kpi-sub" id="st-latency-sub">—</div>
+      </div>
+    </div>
+
+    <div class="bento" style="margin-bottom:16px">
+      <div class="bento-head">
+        <div class="bento-title">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3v18h18"/><path d="m7 14 4-4 3 3 5-6"/></svg>
+          <span>Token 消耗趋势</span>
+        </div>
+        <span class="bento-meta" id="stats-trend-meta">—</span>
+      </div>
+      <div id="stats-chart"></div>
+    </div>
+
+    <div class="overview-grid three">
+      <div class="bento">
+        <div class="bento-head"><div class="bento-title"><span>按模型</span></div></div>
+        <div class="table-scroll"><table class="tbl" style="min-width:0"><thead><tr><th>模型</th><th>请求</th><th>Token</th></tr></thead><tbody id="st-by-model"></tbody></table></div>
+      </div>
+      <div class="bento">
+        <div class="bento-head"><div class="bento-title"><span>按密钥</span></div></div>
+        <div class="table-scroll"><table class="tbl" style="min-width:0"><thead><tr><th>密钥</th><th>请求</th><th>Token</th></tr></thead><tbody id="st-by-key"></tbody></table></div>
+      </div>
+      <div class="bento">
+        <div class="bento-head"><div class="bento-title"><span>按账号</span></div></div>
+        <div class="table-scroll"><table class="tbl" style="min-width:0"><thead><tr><th>账号</th><th>请求</th><th>Token</th></tr></thead><tbody id="st-by-acc"></tbody></table></div>
+      </div>
+    </div>
+
+    <div class="bento">
+      <div class="bento-head">
+        <div class="bento-title">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h10"/></svg>
+          <span>最近请求</span>
+        </div>
+        <span class="bento-meta">最多 50 条</span>
+      </div>
+      <div class="table-scroll">
+        <table class="tbl">
+          <thead><tr><th>时间</th><th>密钥</th><th>来源 IP</th><th>账号</th><th>模型</th><th>Token(入/出/缓存)</th><th>延迟</th><th>状态</th></tr></thead>
+          <tbody id="st-logs"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════ 安全与 IP 管控 ══════ -->
+  <section class="panel" id="panel-security" role="tabpanel" aria-labelledby="tab-security">
+    <div class="page-head">
+      <div>
+        <h1>安全与 IP 管控</h1>
+        <p>入站 IP 白/黑名单、访问审计与全局拦截开关（每 60 秒自动刷新）</p>
+      </div>
+      <div class="toolbar">
+        <button class="btn" id="btn-sec-clear" type="button">
+          <svg class="icon icon-sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg>
+          <span>清空拦截日志</span>
+        </button>
+        <button class="btn btn-brand" id="btn-sec-refresh" type="button">
+          <svg class="icon icon-sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 16h5v5"/></svg>
+          <span>刷新</span>
+        </button>
+      </div>
+    </div>
+
+    <div class="kpi-grid four">
+      <div class="bento">
+        <div class="kpi-top"><span>拦截开关</span></div>
+        <div class="kpi-val" id="sec-state">—</div>
+        <div class="kpi-sub" id="sec-mode-sub">—</div>
+      </div>
+      <div class="bento">
+        <div class="kpi-top"><span>拦截模式</span></div>
+        <div class="kpi-val" id="sec-mode">—</div>
+        <div class="kpi-sub">黑名单=默认放行 / 白名单=默认拒绝</div>
+      </div>
+      <div class="bento">
+        <div class="kpi-top"><span>规则数</span></div>
+        <div class="kpi-val num" id="sec-rules-count">—</div>
+        <div class="kpi-sub" id="sec-rules-sub">—</div>
+      </div>
+      <div class="bento">
+        <div class="kpi-top"><span>累计拦截</span></div>
+        <div class="kpi-val num" id="sec-blocked-count">—</div>
+        <div class="kpi-sub">最近保留 500 条审计</div>
+      </div>
+    </div>
+
+    <div class="overview-grid two">
+      <div class="bento">
+        <div class="bento-head">
+          <div class="bento-title"><span>拦截策略</span></div>
+        </div>
+        <div class="sec-toggles">
+          <label class="switch-row">
+            <span>启用 IP 管控<span class="switch-hint">关闭时放行所有来源 IP</span></span>
+            <button type="button" class="toggle" id="sec-toggle" role="switch" aria-checked="false"><i></i></button>
+          </label>
+          <label class="switch-row">
+            <span>拦截模式<span class="switch-hint">blacklist=仅拒绝命中项；whitelist=仅放行命中项</span></span>
+            <select id="sec-mode-sel" class="inp" style="width:auto">
+              <option value="blacklist">黑名单（默认放行）</option>
+              <option value="whitelist">白名单（默认拒绝）</option>
+            </select>
+          </label>
+        </div>
+        <div class="sec-add-row">
+          <select id="sec-new-type" class="inp" style="width:auto">
+            <option value="deny">拒绝</option>
+            <option value="allow">放行</option>
+          </select>
+          <input id="sec-new-cidr" class="inp" placeholder="IP / CIDR，如 1.2.3.4 或 10.0.0.0/8" style="flex:1">
+          <input id="sec-new-note" class="inp" placeholder="备注（可选）" style="width:130px">
+          <button type="button" class="btn btn-brand" id="sec-add">添加</button>
+        </div>
+        <div class="table-scroll">
+          <table class="tbl" style="min-width:0">
+            <thead><tr><th>类型</th><th>IP / CIDR</th><th>备注</th><th>创建时间</th><th>操作</th></tr></thead>
+            <tbody id="sec-rules"></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="bento">
+        <div class="bento-head">
+          <div class="bento-title"><span>IP 访问拦截日志</span></div>
+          <span class="bento-meta">仅记录被拦截的请求；放行的调用见「用量统计」</span>
+        </div>
+        <div class="table-scroll" style="max-height:420px">
+          <table class="tbl" style="min-width:0">
+            <thead><tr><th>时间</th><th>IP</th><th>路径</th><th>结果</th><th>User-Agent</th></tr></thead>
+            <tbody id="sec-blocked"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<nav class="dock-wrap" aria-label="底栏导航">
+  <div class="dock">
+    <button class="dock-btn active" data-dock="dashboard" type="button" aria-label="仪表盘" title="仪表盘">
+      <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3v18h18"/><path d="M7 16v-5M12 16V8M17 16v-3"/></svg>
+    </button>
+    <button class="dock-btn" data-dock="accounts" type="button" aria-label="账号" title="账号">
+      <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+    </button>
+    <button class="dock-btn" data-dock="keys" type="button" aria-label="密钥" title="密钥">
+      <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="7.5" cy="15.5" r="3.5"/><path d="m10 13 8-8 3 3-3 3-2-2"/></svg>
+    </button>
+    <button class="dock-btn" data-dock="stats" type="button" aria-label="用量统计" title="用量统计">
+      <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3v18h18"/><path d="m7 14 4-4 3 3 5-6"/></svg>
+    </button>
+    <button class="dock-btn" data-dock="security" type="button" aria-label="安全" title="安全与 IP 管控">
+      <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/></svg>
+    </button>
+    <div class="dock-sep" aria-hidden="true"></div>
+    <button class="dock-btn" id="dock-claim" type="button" aria-label="一键领取全部" title="一键领取全部">
+      <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-8"/><rect x="2" y="7" width="20" height="5" rx="1"/><path d="M12 22V7"/></svg>
+    </button>
+    <button class="dock-btn" id="dock-add" type="button" aria-label="登录新账号" title="登录新账号">
+      <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/></svg>
+    </button>
+  </div>
+</nav>
+
+<div id="toasts" role="status" aria-live="polite"></div>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const $$ = (s) => [...document.querySelectorAll(s)];
+const fmt = (n) => (n == null ? '—' : Number(n).toLocaleString('en-US'));
+const fmtCompact = (n) => {
+  const v = Number(n || 0);
+  if (v >= 1e8) return (v / 1e8).toFixed(2) + ' 亿';
+  if (v >= 1e4) return (v / 1e4).toFixed(1) + ' 万';
+  return v.toLocaleString('en-US');
+};
+const fmtDate = (ms) => (!ms ? '—' : new Date(ms).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }));
+const fmtDay = (ms) => (!ms ? '—' : new Date(ms).toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' }));
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+const REALM_TEXT = { cn: '国内版', intl: '国际版', unknown: '待确认' };
+const KIND_TEXT = { promo: '臭鸡蛋', daily: '注册礼包', paid: '付费套餐', offpeak: '夜间不限量', other: '其他额度' };
+const KIND_ORDER = ['promo', 'daily', 'paid', 'offpeak', 'other'];
+
+const state = {
+  tab: 'dashboard',
+  pool: [],
+  quota: [],
+  keys: [],
+  statsRange: 'today',
+  stats: null,
+  realmFilter: 'all',
+  searchQuery: '',
+  stickySessions: 0,
+  loaded: { dashboard: false, accounts: false, keys: false, stats: false },
+};
+
+/* ── 主题 ── */
+function applyTheme(t) {
+  document.documentElement.setAttribute('data-theme', t);
+  localStorage.setItem('zcgw_theme', t);
+  $('#lbl-theme').textContent = t === 'dark' ? '深色外观' : '浅色外观';
+}
+applyTheme(localStorage.getItem('zcgw_theme') || 'light');
+$('#btn-theme').onclick = () => applyTheme(document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
+
+/* ── Toast ── */
+function toast(kind, title, body) {
+  const el = document.createElement('div');
+  el.className = `toast ${kind}`;
+  const svg = {
+    ok: '<svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg>',
+    warn: '<svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M12 9v4M12 17h.01"/><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/></svg>',
+    err: '<svg class="icon icon-sm" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m15 9-6 6M9 9l6 6"/></svg>',
+  };
+  el.innerHTML = `<span class="toast-ico" aria-hidden="true">${svg[kind] || svg.ok}</span>
+    <div><div class="t-title"></div>${body ? '<div class="t-body"></div>' : ''}</div>`;
+  el.querySelector('.t-title').textContent = title;
+  if (body) el.querySelector('.t-body').textContent = body;
+  $('#toasts').appendChild(el);
+  setTimeout(() => { el.style.opacity = '0'; }, 3400);
+  setTimeout(() => el.remove(), 3700);
+}
+
+async function api(path, opts) {
+  const r = await fetch(path, opts);
+  const text = await r.text();
+  let data;
+  try { data = text ? JSON.parse(text) : {}; } catch { throw new Error(`服务端响应异常（HTTP ${r.status}）`); }
+  if (!r.ok) throw new Error(data.error || `请求失败（HTTP ${r.status}）`);
+  return data;
+}
+const postJson = (path, body) => api(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body ?? {}) });
+
+/* ── 路由 ── */
+function goTab(name, push = true) {
+  if (!['dashboard', 'accounts', 'keys', 'stats', 'security'].includes(name)) name = 'dashboard';
+  state.tab = name;
+  $$('.panel').forEach((p) => p.classList.toggle('active', p.id === `panel-${name}`));
+  $$('.dock-btn[data-dock]').forEach((b) => b.classList.toggle('active', b.dataset.dock === name));
+  if (push && location.hash !== `#/${name}`) history.replaceState(null, '', `#/${name}`);
+  loadTab(name).catch((e) => toast('err', '加载失败', e.message));
+}
+
+async function loadTab(name) {
+  if (name === 'dashboard') return loadDashboard();
+  if (name === 'accounts') return loadAccounts();
+  if (name === 'keys') return loadKeys();
+  if (name === 'stats') return loadStats(state.statsRange);
+  if (name === 'security') return loadSecurity();
+}
+
+$$('.tabbtn').forEach((b) => { b.onclick = () => goTab(b.dataset.tab); });
+$$('.dock-btn[data-dock]').forEach((b) => { b.onclick = () => goTab(b.dataset.dock); });
+window.addEventListener('hashchange', () => goTab((location.hash || '').replace(/^#\//, '') || 'dashboard', false));
+
+/* ── 归属筛选（全局）── */
+function setRealmFilter(f) {
+  state.realmFilter = f;
+  $$('[data-realm-tab]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.realmTab === f)));
+  $$('[data-filter]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.filter === f)));
+  if (state.pool.length) { renderDashboard(); renderAccounts(); }
+}
+$$('[data-realm-tab]').forEach((b) => { b.onclick = () => setRealmFilter(b.dataset.realmTab); });
+$$('[data-filter]').forEach((b) => { b.onclick = () => setRealmFilter(b.dataset.filter); });
+
+function scopedPool() {
+  return state.pool.filter((a) => {
+    if (state.realmFilter === 'cn') return a.realm === 'cn';
+    if (state.realmFilter === 'intl') return a.realm === 'intl';
+    return true;
+  });
+}
+
+/* ══════ 仪表盘 ══════ */
+async function loadDashboard() {
+  const [pool, quota, keys, stats14d] = await Promise.all([
+    api('/pool'),
+    api('/quota'),
+    api('/keys').catch(() => ({ keys: [] })),
+    api('/stats?range=14d').catch(() => null),
+  ]);
+  state.pool = pool.accounts ?? [];
+  state.stickySessions = pool.stickySessions ?? 0;
+  state.quota = quota.accounts ?? [];
+  state.keys = keys.keys ?? [];
+  state.stats = stats14d;
+  updateNavCounts();
+  renderDashboard();
+}
+
+function updateNavCounts() {
+  $('#tab-cnt-all').textContent = state.pool.length;
+  $('#tab-cnt-cn').textContent = state.pool.filter((a) => a.realm === 'cn').length;
+  $('#tab-cnt-intl').textContent = state.pool.filter((a) => a.realm === 'intl').length;
+  $('#key-count').textContent = state.keys.length;
+}
+
+function renderDashboard() {
+  const pool = scopedPool();
+  const labels = new Set(pool.map((a) => a.label));
+  const quota = state.quota.filter((q) => labels.has(q.label));
+
+  const cn = state.pool.filter((a) => a.realm === 'cn').length;
+  const intl = state.pool.filter((a) => a.realm === 'intl').length;
+  const unknown = state.pool.filter((a) => a.realm === 'unknown').length;
+  updateNavCounts();
+
+  const avail = pool.filter((a) => a.available).length;
+  const cooling = pool.filter((a) => a.cooling).length;
+  const disabled = pool.filter((a) => a.disabled).length;
+  $('#kpi-total').textContent = pool.length;
+  $('#kpi-total-sub').textContent = state.realmFilter === 'cn' ? '国内版已纳管' : state.realmFilter === 'intl' ? '国际版已纳管' : '账号池已纳管';
+  $('#kpi-avail').textContent = pool.length; // 有效期内
+  $('#kpi-avail-sub').textContent = cooling ? `${cooling} 个不可用` : '全部正常';
+  $('#kpi-avail-sub').className = `kpi-sub ${cooling ? 'brand' : 'ok'}`;
+
+  // 即将过期：检查 3 天内到期的套餐
+  let expiringCount = 0;
+  const nowSec = Date.now() / 1000;
+  for (const q of quota) {
+    for (const p of q.plans ?? []) {
+      if (p.status === 'active' && p.endsAt && (p.endsAt - nowSec < 3 * 86400) && (p.endsAt > nowSec)) {
+        expiringCount++;
+      }
+    }
+  }
+  $('#kpi-expiring').textContent = expiringCount;
+  $('#kpi-expiring-sub').textContent = expiringCount ? `${expiringCount} 个套餐临近到期` : '暂无风险';
+
+  let promoRem = 0, promoTot = 0, promoEnd = 0;
+  let dRem = 0, dTot = 0, d53 = 0, d53Tot = 0, dFl = 0, dFlTot = 0;
+  for (const q of quota) {
+    for (const b of q.balances ?? []) {
+      if (b.kind === 'promo') {
+        promoRem += b.remaining ?? 0; promoTot += b.total ?? 0;
+        if (b.periodEnd && (!promoEnd || b.periodEnd < promoEnd)) promoEnd = b.periodEnd;
+      } else if (b.kind === 'daily') {
+        dRem += b.remaining ?? 0; dTot += b.total ?? 0;
+        if (String(b.model).toUpperCase().includes('FLASH')) { dFl += b.remaining ?? 0; dFlTot += b.total ?? 0; }
+        else { d53 += b.remaining ?? 0; d53Tot += b.total ?? 0; }
+      }
+    }
+  }
+  $('#kpi-promo').textContent = fmtCompact(promoRem);
+  const hoursLeft = promoEnd ? Math.max(0, Math.round((promoEnd * 1000 - Date.now()) / 3600000)) : 0;
+  const pillEl = $('#kpi-promo-pill');
+  if (hoursLeft > 0) {
+    pillEl.style.display = 'inline-block';
+    pillEl.textContent = `${fmtCompact(promoRem).split(' ')[0]} · ${hoursLeft} 小时后到期`;
+  } else {
+    pillEl.style.display = 'none';
+  }
+  $('#kpi-promo-sub').textContent = promoEnd ? `最近一笔将于 ${new Date(promoEnd * 1000).toLocaleString('zh-CN', { hour12: false })} 到期` : 'GLM-5.3-Flash 专项额度';
+
+  const t = state.stats?.totals;
+  $('#kpi-today').textContent = t ? fmtCompact(t.tokens) : '0';
+  $('#kpi-today-sub').textContent = t ? `${fmt(t.requests)} 次请求 · ${state.realmFilter === 'cn' ? '国内版' : state.realmFilter === 'intl' ? '国际版' : '全部版本'}` : '0 次请求';
+
+  const pct = (r, tt) => (tt ? Math.round((r / tt) * 100) : 0);
+  const pc = pct(promoRem, promoTot), p3 = pct(d53, d53Tot), pf = pct(dFl, dFlTot);
+  $('#quota-subcards').innerHTML = `
+    <div class="subcard">
+      <div class="subcard-lbl"><span><span class="badge badge-promo">臭鸡蛋</span> GLM-5.3-Flash</span><span class="num">${pc}%</span></div>
+      <div class="subcard-val num" style="color:var(--brand)">${fmt(promoRem)}</div>
+      <div class="bar brand"><i style="width:${pc}%"></i></div>
+      <div class="subcard-foot"><span>总额 ${fmt(promoTot)}</span><span>${promoEnd ? `至 ${fmtDate(promoEnd * 1000)}` : 'Weekend Build'}</span></div>
+    </div>
+    <div class="subcard">
+      <div class="subcard-lbl"><span><span class="badge badge-daily">注册礼包</span> GLM-5.3 旗舰</span><span class="num">${p3}%</span></div>
+      <div class="subcard-val num" style="color:var(--daily)">${fmt(d53)}</div>
+      <div class="bar daily"><i style="width:${p3}%"></i></div>
+      <div class="subcard-foot"><span>总额 ${fmt(d53Tot)}</span><span>4 天窗口内每日重置</span></div>
+    </div>
+    <div class="subcard">
+      <div class="subcard-lbl"><span><span class="badge badge-daily">注册礼包</span> GLM-5.3-Flash</span><span class="num">${pf}%</span></div>
+      <div class="subcard-val num" style="color:var(--ok)">${fmt(dFl)}</div>
+      <div class="bar"><i style="width:${pf}%"></i></div>
+      <div class="subcard-foot"><span>总额 ${fmt(dFlTot)}</span><span>4 天窗口内每日重置</span></div>
+    </div>`;
+
+  $('#gw-healthy').textContent = `${state.pool.filter((a) => a.available).length}`;
+  $('#gw-cooling').textContent = cooling;
+  $('#gw-degraded').textContent = state.pool.filter((a) => a.degraded).length;
+  $('#gw-disabled').textContent = disabled;
+  $('#gw-inflight').textContent = state.pool.reduce((s, a) => s + (a.inFlight || 0), 0);
+  $('#gw-sticky').textContent = state.stickySessions ?? 0;
+  $('#gw-keys').textContent = state.keys.length;
+  $('#last-sync').textContent = '最近同步 ' + new Date().toLocaleTimeString('zh-CN', { hour12: false });
+
+  // 近 14 天平滑面积趋势图 (SVG Area Chart)
+  render14dTrendChart();
+
+  // 账号健康快照 (网格)
+  renderAccountSnapshot();
+}
+
+/** 绘制 14 天平滑渐变面积折线图 */
+function render14dTrendChart() {
+  const buckets = state.stats?.buckets ?? [];
+  const maxReq = Math.max(1, ...buckets.map((b) => b.requests));
+  const failCount = buckets.reduce((s, b) => s + (b.fails || 0), 0);
+  $('#trend-14d-meta').textContent = `近 14 天 ${failCount} 次失败 · ${state.realmFilter === 'cn' ? '国内版' : state.realmFilter === 'intl' ? '国际版' : '全部版本'}`;
+
+  const W = 760;
+  const H = 170;
+  const padLeft = 40;
+  const padBottom = 24;
+  const padTop = 10;
+  const padRight = 12;
+  const innerW = W - padLeft - padRight;
+  const innerH = H - padTop - padBottom;
+
+  const points = buckets.map((b, idx) => {
+    const x = padLeft + (idx / Math.max(1, buckets.length - 1)) * innerW;
+    const y = padTop + innerH - (b.requests / maxReq) * innerH;
+    return { x, y, b };
+  });
+
+  // Catmull-Rom or cubic bezier path generator
+  let pathD = '';
+  if (points.length) {
+    pathD = `M ${points[0].x} ${points[0].y}`;
+    for (let i = 0; i < points.length - 1; i++) {
+      const p0 = points[i === 0 ? 0 : i - 1];
+      const p1 = points[i];
+      const p2 = points[i + 1];
+      const p3 = points[i + 2] || p2;
+      const cp1x = p1.x + (p2.x - p0.x) / 6;
+      const cp1y = p1.y + (p2.y - p0.y) / 6;
+      const cp2x = p2.x - (p3.x - p1.x) / 6;
+      const cp2y = p2.y - (p3.y - p1.y) / 6;
+      pathD += ` C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${p2.x} ${p2.y}`;
+    }
+  }
+
+  const baseY = padTop + innerH;
+  const areaD = points.length ? `${pathD} L ${points[points.length - 1].x} ${baseY} L ${points[0].x} ${baseY} Z` : '';
+
+  // Y 轴刻度
+  const yTicks = [0, Math.round(maxReq * 0.25), Math.round(maxReq * 0.5), Math.round(maxReq * 0.75), maxReq];
+  const yGridLines = yTicks.map((val) => {
+    const y = padTop + innerH - (val / maxReq) * innerH;
+    return `<g>
+      <line x1="${padLeft}" y1="${y}" x2="${W - padRight}" y2="${y}" stroke="var(--border-subtle)" stroke-dasharray="3,3" />
+      <text x="${padLeft - 8}" y="${y + 3}" font-size="10" text-anchor="end" fill="var(--text-muted)" class="num">${val}</text>
+    </g>`;
+  }).join('');
+
+  // X 轴日期刻度：取等分 6~7 个日期标签，格式 MM-DD，避免重叠
+  const step = Math.max(1, Math.floor(points.length / 6));
+  const xLabels = points.map((p, i) => {
+    if (i % step !== 0 && i !== points.length - 1) return '';
+    const dateStr = fmtDay(p.b.t).replace('/', '-');
+    return `<text x="${p.x}" y="${H - 6}" font-size="10" text-anchor="middle" fill="var(--text-muted)" class="num">${dateStr}</text>`;
+  }).join('');
+
+  $('#trend-14d-chart').innerHTML = `
+    <svg viewBox="0 0 ${W} ${H}" style="width:100%; height:100%; display:block" preserveAspectRatio="none">
+      <defs>
+        <linearGradient id="areaGrad" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="var(--brand)" stop-opacity="0.32"/>
+          <stop offset="100%" stop-color="var(--brand)" stop-opacity="0.0"/>
+        </linearGradient>
+      </defs>
+      ${yGridLines}
+      ${areaD ? `<path d="${areaD}" fill="url(#areaGrad)"/>` : ''}
+      ${pathD ? `<path d="${pathD}" fill="none" stroke="var(--brand)" stroke-width="2.2" stroke-linecap="round"/>` : ''}
+      ${xLabels}
+    </svg>
+  `;
+}
+
+/** 渲染账号健康快照网格 */
+function renderAccountSnapshot() {
+  const pool = scopedPool();
+  const qmap = new Map(state.quota.map((a) => [a.label, a]));
+
+  const online = pool.filter((a) => a.available).length;
+  const cooling = pool.filter((a) => a.cooling).length;
+  $('#snap-online').textContent = `● 在线 ${online}`;
+  $('#snap-cooling').textContent = `● 冷却中 ${cooling}`;
+
+  if (!pool.length) {
+    $('#acc-snapshot-grid').innerHTML = '<div class="muted" style="font-size:12px; padding:12px">暂无账号</div>';
+    return;
+  }
+
+  $('#acc-snapshot-grid').innerHTML = pool.map((acc) => {
+    const q = qmap.get(acc.label);
+    const isOnline = acc.available;
+    const dotColor = isOnline ? 'var(--ok)' : 'var(--warn)';
+    const statusText = isOnline ? '● 在线' : '● 冷却中';
+    const statusColor = isOnline ? 'var(--ok)' : 'var(--warn)';
+
+    // 计算总剩余 tokens / 积分形式
+    const totalRemaining = (q?.balances ?? []).reduce((s, b) => s + (b.remaining || 0), 0);
+    const totalCap = (q?.balances ?? []).reduce((s, b) => s + (b.total || 0), 0);
+    const pct = totalCap ? Math.min(100, Math.round((totalRemaining / totalCap) * 100)) : 100;
+
+    // 最近到期天数
+    let minDays = 30;
+    const nowSec = Date.now() / 1000;
+    for (const p of q?.plans ?? []) {
+      if (p.endsAt && p.endsAt > nowSec) {
+        const d = (p.endsAt - nowSec) / 86400;
+        if (d < minDays) minDays = d;
+      }
+    }
+    const daysStr = minDays.toFixed(1) + ' 天';
+
+    const dispName = acc.identity || friendlySubname(acc);
+
+    return `
+      <div style="background:var(--bg-surface-inner); border:1px solid var(--border-subtle); border-radius:14px; padding:12px 14px">
+        <div style="display:flex; justify-content:space-between; align-items:center; gap:8px">
+          <span class="truncate" style="font-size:13.5px; font-weight:600; color:var(--text-primary)" title="${esc(dispName)}">${esc(dispName)}</span>
+          <span class="num" style="font-size:12px; font-weight:600; color:${statusColor}; white-space:nowrap">${statusText}</span>
+        </div>
+        <div style="height:5px; background:var(--bar-track); border-radius:999px; overflow:hidden; margin:8px 0 6px">
+          <div style="height:100%; border-radius:999px; background:${dotColor}; width:${pct}%"></div>
+        </div>
+        <div style="display:flex; justify-content:space-between; align-items:center; font-size:12px">
+          <span class="num" style="color:var(--ok)" title="套餐剩余有效期">${daysStr}</span>
+          <span class="num" style="font-weight:600; color:var(--text-primary)" title="总可用 Tokens">${fmtCompact(totalRemaining)} 额度</span>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+/* ══════ 账号 ══════ */
+async function loadAccounts() {
+  const jobs = [api('/pool'), api('/quota')];
+  if (!state.keys.length) jobs.push(api('/keys'));
+  const [pool, quota, keys] = await Promise.all(jobs);
+  state.pool = pool.accounts ?? [];
+  state.stickySessions = pool.stickySessions ?? 0;
+  state.quota = quota.accounts ?? [];
+  if (keys) state.keys = keys.keys ?? [];
+  updateNavCounts();
+  renderAccounts();
+}
+
+function friendlySubname(acc) {
+  if (acc.name) return acc.name;
+  const cleaned = String(acc.label || '').replace(/-[0-9a-f]{8}$/i, '').trim();
+  if (cleaned && !/^[0-9a-f-]{8,}$/i.test(cleaned)) return cleaned;
+  return acc.realm === 'cn' ? '国内手机账号' : acc.realm === 'intl' ? '国际邮箱账号' : '新接入账号';
+}
+
+function filteredAccounts() {
+  return state.pool.filter((acc) => {
+    if (state.realmFilter === 'cn' && acc.realm !== 'cn') return false;
+    if (state.realmFilter === 'intl' && acc.realm !== 'intl') return false;
+    if (state.realmFilter === 'unset' && acc.identity) return false;
+    if (state.searchQuery) {
+      const q = state.searchQuery.toLowerCase();
+      const hay = `${acc.identity || ''} ${acc.email || ''} ${acc.name || ''} ${acc.label || ''}`.toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  });
+}
+
+function renderAccounts() {
+  const qmap = new Map(state.quota.map((a) => [a.label, a]));
+  const list = filteredAccounts();
+
+  if (!list.length) {
+    $('#acc-grid').innerHTML = `<div class="empty-state">
+      <div style="font-size:15px;font-weight:600;color:var(--text-primary);margin-bottom:6px">当前筛选下没有账号</div>
+      <div style="margin-bottom:14px">切换到「全部账号」，或点右上角登录新账号。</div>
+      <button type="button" class="btn btn-brand" id="btn-empty-reset">查看全部账号</button></div>`;
+    const b = $('#btn-empty-reset');
+    if (b) b.onclick = () => setRealmFilter('all');
+    return;
+  }
+
+  $('#acc-grid').innerHTML = list.map((acc) => {
+    const q = qmap.get(acc.label);
+    const dot = acc.available ? '' : 'warn';
+    const primary = acc.identity
+      ? `<span class="acc-ident num">${esc(acc.identity)}</span>`
+      : `<button type="button" class="acc-ident-btn" data-edit="${esc(acc.label)}">
+          <svg class="icon icon-sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+          <span>${acc.hasAccessToken ? '自动识别中…' : '无 access_token，需重新授权'}</span></button>`;
+    const realmBadge = (acc.manualWeight === 0 ? `<span class="badge badge-bad" title="权重 0，已暂停调度">⏸ 已暂停</span>` : '') + (acc.realm === 'cn'
+      ? `<span class="badge badge-cn" data-edit="${esc(acc.label)}" title="点击修改归属">国内版</span>`
+      : acc.realm === 'intl'
+      ? `<span class="badge badge-intl" data-edit="${esc(acc.label)}" title="点击修改归属">国际版</span>`
+      : `<button type="button" class="badge badge-unknown" data-edit="${esc(acc.label)}">待确认归属</button>`);
+
+    const balances = q?.balances ?? [];
+    const rows = balances.length
+      ? balances.map((b) => {
+          const p = b.total ? Math.round((b.remaining / b.total) * 100) : 0;
+          const cls = b.kind === 'promo' ? 'brand' : b.kind === 'daily' ? 'daily' : '';
+          return `<div class="q-item">
+            <div class="q-head">
+              <span class="q-left"><span class="badge badge-${b.kind || 'other'}">${b.kindZh || KIND_TEXT[b.kind] || '额度'}</span><span class="truncate">${esc(b.model)}</span></span>
+              <span class="q-right num"><b>${fmt(b.remaining)}</b> / ${fmt(b.total)} <span style="color:var(--text-muted)">(${p}%)</span></span>
+            </div>
+            <div class="bar ${cls}"><i style="width:${p}%"></i></div>
+            ${b.periodEnd ? `<div style="font-size:12px;color:var(--text-muted);text-align:right">至 ${fmtDate(b.periodEnd * 1000)}</div>` : ''}
+          </div>`;
+        }).join('')
+      : `<div style="font-size:12.5px;color:var(--text-muted)">${q?.error ? '暂时无法读取该账号额度' : '暂无生效额度，点「领取额度」试试'}</div>`;
+
+    const plans = (q?.plans ?? []).map((p) => `<span class="plan-tag"><i></i><span>${esc(p.kindZh)} · ${esc(p.nameZh)}</span></span>`).join('');
+    const status = acc.available ? `正常可用 · 在途 ${acc.inFlight || 0}` : `冷却中（剩余 ${acc.cooldownMin} 分钟）`;
+    const hint = !acc.identity && !acc.hasAccessToken
+      ? `<div class="ident-hint">
+          <svg class="icon icon-sm" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 8h.01M11 12h1v4h1"/></svg>
+          <span>这个号没存 OAuth access_token，查不到手机号/邮箱。<button type="button" class="link-btn" data-reauth="1">重新登录一次</button>后自动识别，或点「设置身份」手动标注。</span></div>`
+      : '';
+
+    return `<article class="acc-card">
+      <div class="acc-top">
+        <div class="acc-id-wrap"><span class="status-dot ${dot}" aria-hidden="true"></span>
+          <div>${primary}<div class="acc-subname">${esc(friendlySubname(acc))}</div></div>
+        </div>${realmBadge}
+      </div>
+      <div class="quota-box">${rows}</div>
+      ${plans ? `<div class="plan-strip">${plans}</div>` : ''}
+      ${hint}
+      <div class="acc-foot">
+        <span class="acc-meta">${status}</span>
+        <div class="acc-actions">
+          <button type="button" class="btn btn-sm" data-edit="${esc(acc.label)}">设置身份</button>
+          <button type="button" class="btn btn-sm" data-test="${esc(acc.label)}">测试连通</button>
+          <button type="button" class="btn btn-sm btn-primary" data-claim="${esc(acc.label)}">领取额度</button>
+        </div>
+      </div>
+    </article>`;
+  }).join('');
+
+  $('#acc-grid').querySelectorAll('[data-reauth]').forEach((el) => { el.onclick = () => $('#btn-onboard').click(); });
+  $('#acc-grid').querySelectorAll('[data-edit]').forEach((el) => {
+    el.onclick = () => {
+      const acc = state.pool.find((a) => a.label === el.dataset.edit);
+      if (acc) openIdentityEditor(acc);
+    };
+  });
+  $('#acc-grid').querySelectorAll('[data-claim]').forEach((b) => {
+    b.onclick = async () => {
+      const label = b.dataset.claim;
+      const acc = state.pool.find((a) => a.label === label);
+      const disp = acc?.identity || friendlySubname(acc || { label });
+      b.disabled = true;
+      try {
+        const r = await postJson('/claim', { label });
+        const x = (r.results ?? [])[0] ?? {};
+        if (x.expired) toast('warn', `${disp}：注册礼包已领过`, '新号注册礼包是一次性的（4 天窗口），不可重领；换新账号才能再拿一份。');
+        else if (x.ok && x.alreadyClaimed) toast('ok', `${disp}：额度已在生效中`, x.msg || '无需重复领取');
+        else if (x.ok) toast('ok', `${disp}：成功领取额度`, `已激活套餐 ${x.claimed}`);
+        else toast('warn', `${disp}：暂无可领套餐`, x.msg || '当前不在活动窗口');
+        await loadAccounts();
+      } catch (e) { toast('err', `${disp}：领取失败`, e.message); }
+      finally { b.disabled = false; }
+    };
+  });
+  $('#acc-grid').querySelectorAll('[data-test]').forEach((b) => {
+    b.onclick = async () => {
+      const acc = state.pool.find((a) => a.label === b.dataset.test);
+      const disp = acc?.identity || friendlySubname(acc || { label: b.dataset.test });
+      b.disabled = true;
+      try {
+        const j = await postJson('/selftest');
+        if (j.ok) toast('ok', '网关推理连通正常', `${j.account} 回复：「${j.text || '正常'}」（${j.ms} ms）`);
+        else toast('err', '测试请求未通过', j.error || '未知错误');
+        await loadAccounts();
+      } catch (e) { toast('err', '测试请求失败', e.message); }
+      finally { b.disabled = false; }
+    };
+  });
+}
+
+/* ── 身份编辑 ── */
+function openIdentityEditor(acc) {
+  const bg = document.createElement('div');
+  bg.className = 'modal-bg';
+  const rawEmail = (acc.email || '').replace(/@phone\.local$/i, '');
+  bg.innerHTML = `<div class="modal" role="dialog" aria-modal="true">
+    <h3>设置账号显示身份与归属</h3>
+    <p>国内填 11 位手机号（自动脱敏为 190****2519），国际填邮箱地址。</p>
+    <label for="m-id">手机号（国内）或邮箱（国际）</label>
+    <input id="m-id" placeholder="13800138000 或 you@example.com" value="${esc(rawEmail)}">
+    <label for="m-name">备注昵称（可选）</label>
+    <input id="m-name" placeholder="主力号 / Google 二号" value="${esc(acc.name || '')}">
+    <label for="m-weight">调度权重（0~20，默认 1；0 = 暂停该号）</label>
+    <input id="m-weight" type="number" min="0" max="20" step="0.5" value="${acc.manualWeight ?? 1}">
+    <div class="hint" style="font-size:12px;color:var(--text-secondary);margin-top:3px">越高越优先被调用；实际权重 = 自动分 × 手动权重</div>
+    <label>账号归属</label>
+    <div style="display:flex;gap:8px;margin-top:6px">
+      <button type="button" class="btn" data-realm="cn" style="flex:1">国内（手机号）</button>
+      <button type="button" class="btn" data-realm="intl" style="flex:1">国际（邮箱）</button>
+    </div>
+    <div class="modal-foot"><button type="button" class="btn" id="m-cancel">取消</button>
+      <button type="button" class="btn btn-brand" id="m-save">保存设置</button></div>
+  </div>`;
+  document.body.appendChild(bg);
+  let realm = acc.realm === 'intl' ? 'intl' : acc.realm === 'cn' ? 'cn' : '';
+  const sync = () => bg.querySelectorAll('[data-realm]').forEach((b) => b.classList.toggle('btn-primary', b.dataset.realm === realm));
+  sync();
+  const inp = bg.querySelector('#m-id');
+  inp.oninput = () => {
+    const v = inp.value.trim();
+    if (/^1\d{10}$/.test(v)) { realm = 'cn'; sync(); }
+    else if (v.includes('@')) { realm = 'intl'; sync(); }
+  };
+  bg.querySelectorAll('[data-realm]').forEach((b) => { b.onclick = () => { realm = b.dataset.realm; sync(); }; });
+  const close = () => bg.remove();
+  bg.querySelector('#m-cancel').onclick = close;
+  bg.onclick = (e) => { if (e.target === bg) close(); };
+  bg.querySelector('#m-save').onclick = async () => {
+    const raw = inp.value.trim();
+    const name = bg.querySelector('#m-name').value.trim();
+    const wRaw = bg.querySelector('#m-weight').value.trim();
+    const body = { label: acc.label };
+    if (raw) body.email = raw.includes('@') ? raw : `${raw}@phone.local`;
+    if (name) body.name = name;
+    if (realm) body.realm = realm;
+    if (wRaw !== '') body.weight = Number(wRaw);
+    try {
+      await postJson('/accounts/update', body);
+      close();
+      toast('ok', '账号设置已更新', body.weight !== undefined ? `权重 = ${body.weight}` : undefined);
+      await loadAccounts();
+    } catch (e) { toast('err', '保存失败', e.message); }
+  };
+  inp.focus();
+}
+
+/* ── 粘贴 Token ── */
+function openPasteModal() {
+  const bg = document.createElement('div');
+  bg.className = 'modal-bg';
+  bg.innerHTML = `<div class="modal" role="dialog" aria-modal="true">
+    <h3>粘贴 Token 添加账号</h3>
+    <p>粘贴 OAuth access_token（较长那个）即可自动识别手机号/邮箱与国内国际归属。</p>
+    <label for="mp-jwt">zcodejwttoken（必需，约 255 字符）</label>
+    <input id="mp-jwt" placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...">
+    <div class="modal-foot"><button type="button" class="btn" id="mp-cancel">取消</button>
+      <button type="button" class="btn btn-brand" id="mp-save">添加并领取额度</button></div>
+  </div>`;
+  document.body.appendChild(bg);
+  const close = () => bg.remove();
+  bg.querySelector('#mp-cancel').onclick = close;
+  bg.onclick = (e) => { if (e.target === bg) close(); };
+  bg.querySelector('#mp-save').onclick = async () => {
+    const jwt = bg.querySelector('#mp-jwt').value.trim();
+    if (!jwt.startsWith('eyJ')) return toast('warn', 'Token 格式不对', '请粘贴以 eyJ 开头的完整 JWT');
+    try {
+      const r = await postJson('/accounts/add', { jwt });
+      close();
+      showOnboardSuccess(r, true);
+      // 添加后自动触发身份识别（拿邮箱/手机号/国内国际归属）
+      postJson('/accounts/identify').then(async (ir) => {
+        if (ir.updated || ir.seeded) {
+          toast('ok', '身份已自动识别', `更新 ${ir.updated} · 可查 ${ir.withToken}/${ir.total}`);
+          await loadAccounts();
+        }
+      }).catch(() => {});
+    } catch (e) { toast('err', '添加失败', e.message); }
+  };
+  bg.querySelector('#mp-jwt').focus();
+}
+
+/* ── 登录新账号 ── */
+$('#btn-onboard').onclick = async () => {
+  const box = $('#onboard-box');
+  box.hidden = false;
+  box.innerHTML = `<div class="onboard-card"><div style="font-weight:700;margin-bottom:4px">正在创建 ZCode 授权链接…</div><div class="muted" style="font-size:13px">请稍候</div></div>`;
+  box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  let flow;
+  try { flow = await postJson('/onboard/start'); }
+  catch (e) { toast('err', '无法发起登录授权', e.message); box.hidden = true; return; }
+
+  box.innerHTML = `<div class="onboard-card">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:10px">
+      <div style="display:flex;align-items:center;gap:8px;font-weight:700;font-size:16px">
+        <span class="status-dot warn" aria-hidden="true"></span><span>第一步：在浏览器完成 ZCode 登录授权</span>
+      </div>
+      <span class="muted" style="font-size:12px">链接有效至 ${new Date(flow.expiresAt * 1000).toLocaleTimeString('zh-CN', { hour12: false })}</span>
+    </div>
+    <p class="muted" style="margin:0 0 12px;font-size:13px">授权通过后，面板会自动纳管、自动领取，并识别手机号/邮箱与归属。</p>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      <button type="button" class="btn btn-brand" id="ob-open">打开 ZCode 授权页</button>
+      <button type="button" class="btn" id="ob-poll">我已授权，立即检查</button>
+      <button type="button" class="btn" id="ob-cancel">收起</button>
+      <span id="ob-state" class="muted" style="font-size:12.5px;margin-left:6px">自动等待授权结果…</span>
+    </div>
+  </div>`;
+  $('#ob-open').onclick = () => window.open(flow.authorizeUrl, '_blank');
+  let done = false;
+  $('#ob-cancel').onclick = () => { done = true; box.hidden = true; };
+  async function pollOnce() {
+    if (done) return;
+    const st = $('#ob-state');
+    try {
+      const r = await api(`/onboard/poll/${encodeURIComponent(flow.flowId)}`);
+      if (r.status === 'pending') { if (st) st.textContent = '等待你在浏览器点击确认授权…'; return; }
+      if (r.status !== 'ready') { if (st) st.textContent = `当前状态：${r.status}`; return; }
+      done = true;
+      showOnboardSuccess(r, false);
+    } catch (e) { if (st) st.textContent = '等待重连：' + e.message; }
+  }
+  $('#ob-poll').onclick = pollOnce;
+  const timer = setInterval(async () => {
+    if (done) { clearInterval(timer); return; }
+    await pollOnce();
+    if (done) clearInterval(timer);
+  }, Math.max(2, flow.pollIntervalSec || 2) * 1000);
+};
+
+async function showOnboardSuccess(r, fromPaste) {
+  $('#onboard-box').hidden = true;
+  const c = r.claim || {};
+  let desc = '已尝试自动领取';
+  if (c.ok && c.alreadyClaimed) desc = c.expired ? '注册礼包已领过（新号专属）' : '额度已在生效中';
+  else if (c.ok) desc = `已成功领取 ${c.claimed}`;
+  else if (c.msg) desc = c.msg;
+  await loadAccounts();
+  const who = r.identity || r.label;
+  toast('ok', fromPaste ? `已添加 ${who}` : `登录成功：${who}`, desc);
+  if (!r.identity || r.realm === 'unknown') {
+    const acc = state.pool.find((a) => a.label === r.label);
+    if (acc && !acc.hasAccessToken) openIdentityEditor(acc);
+  }
+}
+
+/* ══════ 密钥 ══════ */
+async function loadKeys() {
+  const jobs = [api('/keys')];
+  if (!state.pool.length) jobs.push(api('/pool'));
+  const [j, pool] = await Promise.all(jobs);
+  if (pool) {
+    state.pool = pool.accounts ?? [];
+    state.stickySessions = pool.stickySessions ?? 0;
+  }
+  state.keys = j.keys ?? [];
+  updateNavCounts();
+  renderKeys(j);
+}
+
+function keyStatusBadge(k) {
+  if (k.status === 'disabled') return '<span class="badge badge-off">已禁用</span>';
+  if (k.status === 'expired') return '<span class="badge badge-warn">已过期</span>';
+  if (k.status === 'exhausted') return '<span class="badge badge-bad">配额用尽</span>';
+  return '<span class="badge badge-ok">正常</span>';
+}
+
+function renderKeys(resp) {
+  const keys = resp?.keys ?? state.keys;
+  const totalUsed = keys.reduce((s, k) => s + (k.usedTokens || 0), 0);
+  $('#key-count').textContent = keys.length;
+  $('#key-used').textContent = fmt(totalUsed);
+  $('#key-mode').textContent = resp?.openMode
+    ? '当前为开放模式：没配密钥也没设 GATEWAY_KEY，任何人都能调用'
+    : resp?.masterKeyEnabled
+    ? '已启用 GATEWAY_KEY 主密钥（旧版兼容）'
+    : '已开启鉴权：只接受下列密钥';
+
+  $('#key-rows').innerHTML = keys.length
+    ? keys.map((k) => `<tr>
+        <td><b>${esc(k.name)}</b>${k.note ? `<div class="muted" style="font-size:12px">${esc(k.note)}</div>` : ''}</td>
+        <td class="mono">${esc(k.prefix)}…</td>
+        <td>${keyStatusBadge(k)}</td>
+        <td>${k.realm ? `<span class="badge badge-${k.realm}">${esc(k.realmZh)}</span>` : '<span class="muted">未限定</span>'}</td>
+        <td class="num">${k.expiresAt ? fmtDate(k.expiresAt) : '永不过期'}</td>
+        <td class="muted" style="font-size:12px">
+          ${k.ipAllowlist.length ? `IP: ${esc(k.ipAllowlist.join(', '))}` : '不限 IP'}<br>
+          ${k.models.length ? `模型: ${esc(k.models.join(', '))}` : '全部模型'}
+        </td>
+        <td class="num">${k.quotaTokens ? `${fmt(k.usedTokens)} / ${fmt(k.quotaTokens)}` : fmt(k.usedTokens)}</td>
+        <td class="num muted">${k.lastUsedAt ? fmtDate(k.lastUsedAt) : '—'}</td>
+        <td><div class="row-actions">
+          <button class="btn btn-sm" data-kact="toggle" data-id="${k.id}">${k.enabled ? '禁用' : '启用'}</button>
+          <button class="btn btn-sm" data-kact="reset" data-id="${k.id}">清零</button>
+          <button class="btn btn-sm" data-kedit="${k.id}">编辑</button>
+          <button class="btn btn-sm btn-danger" data-kdel="${k.id}">删除</button>
+        </div></td>
+      </tr>`).join('')
+    : `<tr><td colspan="9" class="muted" style="padding:26px;text-align:center">还没有密钥，点右上角「新建密钥」创建一把</td></tr>`;
+
+  $('#key-sample').textContent =
+    `pi 配置（~/.pi/agent/models.json）:\n"baseUrl": "${location.origin}"\n"apiKey": "zck_xxxxxxxx"\n\ncurl:\ncurl ${location.origin}/v1/messages \\
+  -H "x-api-key: zck_xxxxxxxx" \\
+  -H "content-type: application/json" \\
+  -d '{"model":"GLM-5.3-Flash","max_tokens":64,"messages":[{"role":"user","content":"hi"}]}'`;
+
+  $('#key-rows').querySelectorAll('[data-kact]').forEach((b) => {
+    b.onclick = async () => {
+      const k = keys.find((x) => x.id === Number(b.dataset.id));
+      try {
+        if (b.dataset.kact === 'toggle') await postJson(`/keys/${k.id}/update`, { enabled: !k.enabled });
+        else await postJson(`/keys/${k.id}/reset`);
+        toast('ok', b.dataset.kact === 'toggle' ? (k.enabled ? '已禁用密钥' : '已启用密钥') : '已清零用量');
+        await loadKeys();
+      } catch (e) { toast('err', '操作失败', e.message); }
+    };
+  });
+  $('#key-rows').querySelectorAll('[data-kedit]').forEach((b) => {
+    b.onclick = () => openKeyEditor(keys.find((x) => x.id === Number(b.dataset.kedit)));
+  });
+  $('#key-rows').querySelectorAll('[data-kdel]').forEach((b) => {
+    b.onclick = async () => {
+      const k = keys.find((x) => x.id === Number(b.dataset.kdel));
+      if (!confirm(`确定删除密钥「${k.name}」？删除后该 key 立即失效。`)) return;
+      try { await postJson(`/keys/${k.id}/delete`); toast('ok', '密钥已删除'); await loadKeys(); }
+      catch (e) { toast('err', '删除失败', e.message); }
+    };
+  });
+}
+
+function keyFormModal(existing) {
+  const bg = document.createElement('div');
+  bg.className = 'modal-bg';
+  const e = existing || {};
+  bg.innerHTML = `<div class="modal" role="dialog" aria-modal="true">
+    <h3>${existing ? '编辑密钥' : '新建密钥'}</h3>
+    <p>${existing ? '修改后立即生效。' : '完整密钥只在创建后显示一次，请立刻复制。'}</p>
+    <label for="k-name">名称</label>
+    <input id="k-name" placeholder="例如：pi-本机 / 团队A" value="${esc(e.name || '')}">
+    <label for="k-days">有效期（天，留空=永不过期）</label>
+    <input id="k-days" type="number" min="0" placeholder="30" value="${e.expiresAt ? '' : ''}">
+    <label for="k-quota">配额（tokens，0=不限）</label>
+    <input id="k-quota" type="number" min="0" placeholder="0" value="${e.quotaTokens || 0}">
+    <label for="k-models">模型白名单（逗号分隔，留空=全部）</label>
+    <input id="k-models" placeholder="GLM-5.3-Flash,GLM-5.3" value="${esc((e.models || []).join(','))}">
+    <label for="k-ips">IP 白名单（逗号分隔，留空=不限）</label>
+    <input id="k-ips" placeholder="127.0.0.1" value="${esc((e.ipAllowlist || []).join(','))}">
+    <label for="k-realm">版本限定</label>
+    <select id="k-realm">
+      <option value="">不限定</option>
+      <option value="cn"${e.realm === 'cn' ? ' selected' : ''}>国内版</option>
+      <option value="intl"${e.realm === 'intl' ? ' selected' : ''}>国际版</option>
+    </select>
+    <label for="k-note">备注</label>
+    <input id="k-note" placeholder="可选" value="${esc(e.note || '')}">
+    <div class="modal-foot"><button type="button" class="btn" id="k-cancel">取消</button>
+      <button type="button" class="btn btn-brand" id="k-save">${existing ? '保存' : '创建'}</button></div>
+  </div>`;
+  document.body.appendChild(bg);
+  const close = () => bg.remove();
+  bg.querySelector('#k-cancel').onclick = close;
+  bg.onclick = (ev) => { if (ev.target === bg) close(); };
+  bg.querySelector('#k-save').onclick = async () => {
+    const body = {
+      name: bg.querySelector('#k-name').value.trim(),
+      quotaTokens: Number(bg.querySelector('#k-quota').value) || 0,
+      models: bg.querySelector('#k-models').value.split(',').map((s) => s.trim()).filter(Boolean),
+      ipAllowlist: bg.querySelector('#k-ips').value.split(',').map((s) => s.trim()).filter(Boolean),
+      realm: bg.querySelector('#k-realm').value,
+      note: bg.querySelector('#k-note').value.trim(),
+    };
+    const days = Number(bg.querySelector('#k-days').value);
+    if (days > 0) body.expiresInDays = days;
+    if (!body.name) return toast('warn', '请填写密钥名称');
+    try {
+      const r = existing ? await postJson(`/keys/${existing.id}/update`, body) : await postJson('/keys', body);
+      close();
+      await loadKeys();
+      if (!existing && r.secret) showSecret(r.secret, body.name, r.key);
+      else toast('ok', '密钥已更新');
+    } catch (err) { toast('err', '保存失败', err.message); }
+  };
+  bg.querySelector('#k-name').focus();
+}
+
+function openKeyEditor(k) { keyFormModal(k); }
+
+function showSecret(secret, name, key) {
+  const bg = document.createElement('div');
+  bg.className = 'modal-bg';
+  bg.innerHTML = `<div class="modal" role="dialog" aria-modal="true">
+    <h3>密钥已创建</h3>
+    <p>这是「${esc(name)}」的完整密钥，<b>只显示这一次</b>，关掉就再也看不到了（服务端只存哈希）。</p>
+    <pre class="codebox" id="sec-box">${esc(secret)}</pre>
+    <div class="modal-foot">
+      <button type="button" class="btn" id="sec-copy">复制密钥</button>
+      <button type="button" class="btn btn-primary" id="sec-close">我已保存</button>
+    </div>
+  </div>`;
+  document.body.appendChild(bg);
+  bg.querySelector('#sec-close').onclick = () => bg.remove();
+  bg.onclick = (e) => { if (e.target === bg) bg.remove(); };
+  bg.querySelector('#sec-copy').onclick = async () => {
+    try { await navigator.clipboard.writeText(secret); toast('ok', '已复制到剪贴板'); }
+    catch { toast('warn', '复制失败，请手动选中复制'); }
+  };
+}
+$('#btn-new-key').onclick = () => keyFormModal(null);
+
+/* ══════ 用量统计 ══════ */
+async function loadStats(range) {
+  state.statsRange = range || state.statsRange;
+  $$('[data-range]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.range === state.statsRange)));
+  const jobs = [api(`/stats?range=${state.statsRange}`)];
+  // 顶栏计数不依赖当前 tab：池子/密钥没加载过就顺手拉一次
+  if (!state.pool.length) jobs.push(api('/pool'));
+  if (!state.keys.length) jobs.push(api('/keys'));
+  const [j, pool, keys] = await Promise.all(jobs);
+  if (pool) {
+    state.pool = pool.accounts ?? [];
+    state.stickySessions = pool.stickySessions ?? 0;
+  }
+  if (keys) state.keys = keys.keys ?? [];
+  updateNavCounts();
+  state.stats = j;
+  renderStats(j);
+}
+
+function renderStats(j) {
+  const t = j.totals;
+  $('#st-req').textContent = fmt(t.requests);
+  $('#st-req-sub').textContent = `成功 ${fmt(t.ok)} · 失败 ${fmt(t.fail)}`;
+  $('#st-tokens').textContent = fmtCompact(t.tokens);
+  $('#st-tokens-sub').textContent = `入 ${fmtCompact(t.in)} · 出 ${fmtCompact(t.out)} · 缓存 ${fmtCompact(t.cacheRead)}`;
+  $('#st-cache').textContent = `${t.cacheHitRate}%`;
+  $('#st-cache-sub').textContent = `缓存读 ${fmt(t.cacheRead)} · 缓存写 ${fmt(t.cacheCreate)}`;
+  $('#st-latency').textContent = t.avgMs ? `${t.avgMs} ms` : '—';
+  $('#st-latency-sub').textContent = `共 ${fmt(t.requests)} 次请求`;
+
+  const rangeText = { today: '今日 · 按小时', '7d': '近 7 天 · 按天', '30d': '近 30 天 · 按天' }[j.range] || j.range;
+  $('#stats-trend-meta').textContent = rangeText;
+  const maxTok = Math.max(1, ...j.buckets.map((b) => b.tokens));
+  const hasData = j.buckets.some((b) => b.requests);
+  $('#stats-chart').innerHTML = hasData
+    ? `<div class="chart">${j.buckets.map((b) => {
+        const h = b.tokens ? Math.max(3, Math.round((b.tokens / maxTok) * 100)) : 0;
+        const label = `${j.range === 'today' ? new Date(b.t).getHours() + ':00' : fmtDay(b.t)} · ${b.requests} 请求 · ${fmt(b.tokens)} tokens`;
+        return `<div class="col ${b.fails ? 'has-fail' : ''}" title="${esc(label)}"><i style="height:${h}%"></i></div>`;
+      }).join('')}</div>
+      <div class="chart-x"><span>${j.range === 'today' ? '00:00' : fmtDay(j.buckets[0]?.t)}</span><span>${j.range === 'today' ? '12:00' : ''}</span><span>${j.range === 'today' ? '23:00' : fmtDay(j.buckets[j.buckets.length - 1]?.t)}</span></div>`
+    : '<div class="chart-empty">所选区间内没有调用记录</div>';
+
+  const rowHtml = (rows, nameLabel) => rows.length
+    ? rows.map((r) => `<tr><td class="truncate" style="max-width:180px">${esc(r.name)}</td><td class="num">${fmt(r.requests)}</td><td class="num">${fmtCompact(r.tokens)}</td></tr>`).join('')
+    : `<tr><td colspan="3" class="muted">无数据</td></tr>`;
+  $('#st-by-model').innerHTML = rowHtml(j.byModel);
+  $('#st-by-key').innerHTML = rowHtml(j.byKey);
+  $('#st-by-acc').innerHTML = rowHtml(j.byAccount);
+
+  $('#st-logs').innerHTML = j.recent.length
+    ? j.recent.map((r) => `<tr>
+        <td class="num muted">${fmtDate(r.t)}</td>
+        <td>${esc(r.key)}</td>
+        <td class="num muted">${esc(r.ip || '—')}</td>
+        <td class="truncate" style="max-width:170px">${esc(r.acc)}</td>
+        <td>${esc(r.model)}</td>
+        <td class="num">${fmt(r.in)} / ${fmt(r.out)} / ${fmt(r.cacheRead)}</td>
+        <td class="num">${r.ms} ms</td>
+        <td>${r.ok ? '<span class="badge badge-ok">成功</span>' : `<span class="badge badge-bad">${esc(r.err || '失败')}</span>`}</td>
+      </tr>`).join('')
+    : `<tr><td colspan="8" class="muted" style="padding:24px;text-align:center">还没有请求记录</td></tr>`;
+}
+
+$$('[data-range]').forEach((b) => { b.onclick = () => loadStats(b.dataset.range); });
+$('#btn-stats-refresh').onclick = async () => {
+  try { await loadStats(state.statsRange); toast('ok', '统计已刷新'); }
+  catch (e) { toast('err', '刷新失败', e.message); }
+};
+
+/* ── 安全与 IP 管控 ── */
+async function loadSecurity() {
+  const j = await api('/security');
+  const tg = $('#sec-toggle');
+  tg.setAttribute('aria-checked', String(!!j.enabled));
+  tg.classList.toggle('on', !!j.enabled);
+  $('#sec-state').innerHTML = j.enabled
+    ? '<span style="color:var(--ok)">已启用</span>'
+    : '<span class="muted">未启用</span>';
+  $('#sec-mode').textContent = j.mode === 'whitelist' ? '白名单' : '黑名单';
+  $('#sec-mode-sel').value = j.mode || 'blacklist';
+  $('#sec-mode-sub').textContent = j.enabled
+    ? (j.mode === 'whitelist' ? '仅白名单内 IP 可访问' : '命中黑名单即拒绝')
+    : '所有来源 IP 均放行';
+  $('#sec-rules-count').textContent = fmt(j.rules.length);
+  $('#sec-rules-sub').textContent = `${j.rules.filter((r) => r.type === 'deny').length} 拒绝 / ${j.rules.filter((r) => r.type === 'allow').length} 放行`;
+  $('#sec-blocked-count').textContent = fmt(j.blockedTotal);
+
+  $('#sec-rules').innerHTML = j.rules.length
+    ? j.rules.map((r, i) => `<tr>
+        <td><span class="badge ${r.type === 'deny' ? 'badge-bad' : 'badge-ok'}">${r.type === 'deny' ? '拒绝' : '放行'}</span></td>
+        <td class="num">${esc(r.cidr)}</td>
+        <td class="truncate" style="max-width:160px">${esc(r.note || '—')}</td>
+        <td class="num muted">${fmtDate(r.createdAt)}</td>
+        <td><button type="button" class="btn btn-sm btn-danger" data-del-rule="${i}">删除</button></td>
+      </tr>`).join('')
+    : `<tr><td colspan="5" class="muted" style="padding:18px;text-align:center">暂无规则</td></tr>`;
+  $$('#sec-rules [data-del-rule]').forEach((b) => {
+    b.onclick = async () => {
+      try {
+        await postJson('/security', { action: 'remove', index: Number(b.dataset.delRule) });
+        await loadSecurity();
+      } catch (e) { toast('err', '删除失败', e.message); }
+    };
+  });
+
+  $('#sec-blocked').innerHTML = j.blocked.length
+    ? j.blocked.map((r) => `<tr>
+        <td class="num muted">${fmtDate(r.t)}</td>
+        <td class="num">${esc(r.ip)}</td>
+        <td class="num muted">${esc(r.path)}</td>
+        <td><span class="badge badge-bad">已拦截</span><div class="muted" style="font-size:12px">${esc(r.reason || '')}</div></td>
+        <td class="truncate muted" style="max-width:220px" title="${esc(r.ua || '')}">${esc(r.ua || '—')}</td>
+      </tr>`).join('')
+    : `<tr><td colspan="5" class="muted" style="padding:18px;text-align:center">暂无拦截记录</td></tr>`;
+}
+
+$('#sec-toggle').onclick = async () => {
+  const next = $('#sec-toggle').getAttribute('aria-checked') !== 'true';
+  try {
+    await postJson('/security', { enabled: next });
+    await loadSecurity();
+    toast(next ? 'ok' : 'warn', next ? 'IP 管控已启用' : 'IP 管控已关闭', next ? '不在规则内的 IP 将按模式处理' : '所有来源 IP 均放行');
+  } catch (e) { toast('err', '操作失败', e.message); }
+};
+$('#sec-mode-sel').onchange = async (e) => {
+  try {
+    await postJson('/security', { mode: e.target.value });
+    await loadSecurity();
+    toast('ok', '拦截模式已切换', e.target.value === 'whitelist' ? '白名单模式：仅命中放行规则的 IP 可访问' : '黑名单模式：仅命中拒绝规则的 IP 被拦截');
+  } catch (e2) { toast('err', '操作失败', e2.message); }
+};
+$('#sec-add').onclick = async () => {
+  const cidr = $('#sec-new-cidr').value.trim();
+  if (!cidr) return toast('warn', '缺少 IP', '请填写 IP 或 CIDR 段');
+  try {
+    await postJson('/security', { action: 'add', type: $('#sec-new-type').value, cidr, note: $('#sec-new-note').value.trim() });
+    $('#sec-new-cidr').value = '';
+    $('#sec-new-note').value = '';
+    await loadSecurity();
+    toast('ok', '规则已添加', cidr);
+  } catch (e) { toast('err', '添加失败', e.message); }
+};
+$('#btn-sec-clear').onclick = async () => {
+  try {
+    await postJson('/security/clear-blocked');
+    await loadSecurity();
+    toast('ok', '拦截日志已清空');
+  } catch (e) { toast('err', '操作失败', e.message); }
+};
+$('#btn-sec-refresh').onclick = () => loadSecurity().then(() => toast('ok', '安全面板已刷新')).catch((e) => toast('err', '刷新失败', e.message));
+
+/* ══════ 账号页工具栏 ══════ */
+$('#btn-refresh').onclick = async () => {
+  try { await loadAccounts(); toast('ok', '余额已同步更新'); }
+  catch (e) { toast('err', '刷新余额失败', e.message); }
+};
+$('#btn-reset').onclick = async () => {
+  try { await postJson('/pool/reset'); await loadAccounts(); toast('ok', '已解除全部账号冷却'); }
+  catch (e) { toast('err', '解除冷却失败', e.message); }
+};
+$('#btn-claim-all').onclick = async () => {
+  const btn = $('#btn-claim-all');
+  btn.disabled = true;
+  try {
+    const r = await postJson('/claim');
+    const list = r.results ?? [];
+    const newly = list.filter((x) => x.ok && !x.alreadyClaimed).length;
+    const already = list.filter((x) => x.alreadyClaimed).length;
+    const failed = list.filter((x) => !x.ok).length;
+    toast(newly || already ? 'ok' : 'warn', '一键领取完成',
+      `新激活 ${newly} · 已生效 ${already}${failed ? ` · 未领到 ${failed}` : ''}`);
+    await loadAccounts();
+  } catch (e) { toast('err', '一键领取失败', e.message); }
+  finally { btn.disabled = false; }
+};
+$('#btn-paste-jwt').onclick = openPasteModal;
+$('#btn-pool-settings').onclick = openPoolSettings;
+
+/* ── 轮换设置弹窗（在线调参，持久化到 pool-settings.json）── */
+async function openPoolSettings() {
+  let data;
+  try {
+    data = await api('/pool/settings');
+  } catch (e) {
+    toast('err', '读取设置失败', e.message);
+    return;
+  }
+  const s = data.settings;
+  const L = data.limits;
+
+  const numField = (key, label, hint, unit = '', step = '1') => {
+    const [lo, hi] = L[key] || [0, 9999];
+    return `<label for="ps-${key}">${label}${unit ? `（${unit}）` : ''}</label>
+      <input id="ps-${key}" type="number" min="${lo}" max="${hi}" step="${step}" value="${s[key]}">
+      <div class="hint">${hint} · 范围 ${lo}~${hi}</div>`;
+  };
+
+  const bg = document.createElement('div');
+  bg.className = 'modal-bg';
+  bg.innerHTML = `<div class="modal" role="dialog" aria-modal="true">
+    <h3>轮换调度设置</h3>
+    <p>改完立即生效并持久化，无需重启。</p>
+
+    <div style="font-size:12.5px;font-weight:700;color:var(--brand);margin:14px 0 4px">选号权重</div>
+    ${numField('weightBalFactor', '余额占比系数', '权重 = 余额占比 × 该系数；0 = 不看余额')}
+    ${numField('weightSuccFactor', '成功率系数', '权重 = 成功率 × 该系数；0 = 不看成功率')}
+    ${numField('idleWeightPerHour', '闲置补偿 / 小时', '闲置每小时额外加的权重', '', '0.1')}
+    ${numField('idleWeightMax', '闲置补偿封顶', '闲置补偿上限；0 = 关闭闲置补偿')}
+    ${numField('topN', 'Top-N 候选窗口', '只从权重最高的 N 个号里加权随机')}
+
+    <div style="font-size:12.5px;font-weight:700;color:var(--brand);margin:14px 0 4px">会话粘性</div>
+    ${numField('stickyTtlMin', '粘性 TTL', '同一会话固定同号的时长（滚动续期）', '分钟')}
+
+    <div style="font-size:12.5px;font-weight:700;color:var(--brand);margin:14px 0 4px">冷却与熔断</div>
+    ${numField('busyCooldownSec', '限流首次冷却', '1005/3009 首次按并发瞬态处理', '秒')}
+    ${numField('quotaCooldownMin', '额度冷却', '限流反复出现后的冷却', '分钟')}
+    ${numField('blockedCooldownMin', '风控冷却', '3012 被拦时的冷却', '分钟')}
+    ${numField('breakerCooldownMin', '熔断基数', '连败熔断起始时长（之后翻倍封顶 6h）', '分钟')}
+    ${numField('breakerThreshold', '熔断阈值', '连续失败几次触发熔断', '次')}
+
+    <div style="font-size:12.5px;font-weight:700;color:var(--brand);margin:14px 0 4px">并发与节奏</div>
+    ${numField('maxInFlight', '单号在途上限', '同一账号同时处理的请求数')}
+    ${numField('minPickGapMs', '防惊群窗口', '这段时间内刚被选过的号排到队尾', 'ms')}
+
+    <div class="modal-foot">
+      <button type="button" class="btn" id="ps-reset">恢复默认</button>
+      <button type="button" class="btn" id="ps-cancel">取消</button>
+      <button type="button" class="btn btn-brand" id="ps-save">保存并生效</button>
+    </div>
+  </div>`;
+  document.body.appendChild(bg);
+  const close = () => bg.remove();
+  bg.querySelector('#ps-cancel').onclick = close;
+  bg.onclick = (e) => { if (e.target === bg) close(); };
+
+  bg.querySelector('#ps-save').onclick = async () => {
+    const body = {};
+    for (const k of Object.keys(L)) {
+      const el = bg.querySelector(`#ps-${k}`);
+      if (el && el.value !== '') body[k] = Number(el.value);
+    }
+    try {
+      const r = await postJson('/pool/settings', body);
+      close();
+      const n = Object.keys(r.applied || {}).length;
+      toast('ok', '轮换设置已生效', `更新 ${n} 项，已持久化`);
+      await loadAccounts().catch(() => {});
+    } catch (e) {
+      toast('err', '保存失败', e.message);
+    }
+  };
+
+  bg.querySelector('#ps-reset').onclick = () => {
+    const defaults = {
+      maxInFlight: 5, breakerThreshold: 3, breakerCooldownMin: 30, blockedCooldownMin: 10,
+      quotaCooldownMin: 30, busyCooldownSec: 90, stickyTtlMin: 30, topN: 3,
+      idleWeightPerHour: 0.5, idleWeightMax: 5, minPickGapMs: 120,
+      weightBalFactor: 10, weightSuccFactor: 3,
+    };
+    for (const [k, v] of Object.entries(defaults)) {
+      const el = bg.querySelector(`#ps-${k}`);
+      if (el) el.value = v;
+    }
+    toast('ok', '已填入默认值', '点「保存并生效」后才会应用');
+  };
+}
+$('#inp-search').oninput = (e) => { state.searchQuery = e.target.value.trim(); renderAccounts(); };
+$('#dock-claim').onclick = () => $('#btn-claim-all').click();
+$('#dock-add').onclick = () => { goTab('accounts'); setTimeout(() => $('#btn-onboard').click(), 120); };
+
+/* ── 命令面板 ── */
+function openCommandPalette() {
+  const bg = document.createElement('div');
+  bg.className = 'modal-bg';
+  const items = [
+    ['dashboard', '去仪表盘', '总览与余额'],
+    ['accounts', '去账号管理', '账号池与额度'],
+    ['keys', '去密钥管理', 'API Key 分发'],
+    ['stats', '去用量统计', 'Token 与请求'],
+    ['security', '去安全与 IP 管控', '黑白名单与拦截审计'],
+  ];
+  bg.innerHTML = `<div class="modal" role="dialog" aria-modal="true">
+    <h3>快捷命令</h3><p>按 Esc 关闭</p>
+    <div style="display:flex;flex-direction:column;gap:8px">
+      ${items.map(([t, label, d]) => `<button type="button" class="btn" data-go="${t}" style="justify-content:space-between"><span>${label}</span><span class="kbd">${d}</span></button>`).join('')}
+      <button type="button" class="btn" data-cmd="onboard" style="justify-content:space-between"><span>登录新账号并领取</span><span class="kbd">OAuth</span></button>
+      <button type="button" class="btn" data-cmd="claim" style="justify-content:space-between"><span>一键领取全部</span><span class="kbd">Claim</span></button>
+      <button type="button" class="btn" data-cmd="theme" style="justify-content:space-between"><span>切换深浅色</span><span class="kbd">Theme</span></button>
+    </div>
+    <div class="modal-foot"><button type="button" class="btn" id="cm-close">关闭</button></div>
+  </div>`;
+  document.body.appendChild(bg);
+  const close = () => bg.remove();
+  bg.querySelector('#cm-close').onclick = close;
+  bg.onclick = (e) => { if (e.target === bg) close(); };
+  bg.querySelectorAll('[data-go]').forEach((b) => { b.onclick = () => { close(); goTab(b.dataset.go); }; });
+  bg.querySelectorAll('[data-cmd]').forEach((b) => {
+    b.onclick = () => {
+      const c = b.dataset.cmd;
+      close();
+      if (c === 'onboard') { goTab('accounts'); setTimeout(() => $('#btn-onboard').click(), 120); }
+      if (c === 'claim') $('#btn-claim-all').click();
+      if (c === 'theme') $('#btn-theme').click();
+    };
+  });
+}
+$('#btn-cmdk').onclick = openCommandPalette;
+document.addEventListener('keydown', (e) => {
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); openCommandPalette(); }
+  if (e.key === 'Escape') { const m = document.querySelector('.modal-bg'); if (m) m.remove(); }
+});
+
+/* ── 启动 ── */
+goTab((location.hash || '').replace(/^#\//, '') || 'dashboard', false);
+setInterval(() => {
+  if (state.tab === 'dashboard') loadDashboard().catch(() => {});
+  else if (state.tab === 'accounts') loadAccounts().catch(() => {});
+  else if (state.tab === 'stats') loadStats(state.statsRange).catch(() => {});
+  else if (state.tab === 'security') loadSecurity().catch(() => {});
+}, 30000);
+</script>
+</body>
+</html>

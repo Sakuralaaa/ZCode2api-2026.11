@@ -1,0 +1,48 @@
+# zcgw — ZCode 多账号反代网关
+#
+#   docker compose up -d          # 启动（首次自动建目录）
+#   docker compose logs -f        # 跟日志
+#   docker compose down           # 停止（数据保留）
+#   docker compose up -d --build  # 更新代码后重建
+#
+# 数据全部落在 ./data/（宿主机可备份/编辑）：
+#   accounts.json  keys.json  usage.jsonl  pool-*.json  security.json  onboard-flows.json
+#
+# 首次部署：把 accounts.json / keys.json 等放到 ./data/ 再 up，或启动后用面板添加。
+
+services:
+  zcgw:
+    build: .
+    image: zcgw:latest
+    container_name: zcgw
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8787:8787"   # 只本机 nginx 反代；如需直连 IP:8787 改回 "8787:8787"
+    environment:
+      # 监听容器内 0.0.0.0（必须，docker 端口映射依赖它）
+      HOST: 0.0.0.0
+      PORT: 8787
+      # 可选：主密钥（面板密钥之外的后门 key）；一般留空用面板建的 key
+      GATEWAY_KEY: ""
+      # 上游与模型（一般不用改）
+      ZCODE_UPSTREAM_ORIGIN: "https://zcode.z.ai"
+      ZCODE_MODEL: "GLM-5.3-Flash"
+      # 调度参数可用环境变量覆盖（不设则用 data/pool-settings.json 或内置默认）
+      # ZCGW_TOPN: "3"
+      # ZCGW_MAX_INFLIGHT: "5"
+    volumes:
+      - ./data:/app/data
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8787/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    # 轻量加固
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
