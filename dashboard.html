@@ -542,6 +542,10 @@
         <p>国内显示脱敏手机号，国际显示邮箱；展示每项额度剩余与到期时间</p>
       </div>
       <div class="toolbar">
+        <button class="btn" id="btn-mask" type="button" title="脱敏邮箱/手机号/昵称，方便截图分享">
+          <svg class="icon icon-sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+          <span id="lbl-mask">脱敏</span>
+        </button>
         <button class="btn" id="btn-reset" type="button">
           <svg class="icon icon-sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
           <span>解除冷却</span>
@@ -903,6 +907,10 @@ function maskIdentity(s) {
 function applyPrivacy() {
   document.body.classList.toggle('privacy', privacyOn);
   $('#lbl-privacy').textContent = privacyOn ? '隐私模式 开' : '隐私模式';
+  const maskLbl = $('#lbl-mask');
+  if (maskLbl) maskLbl.textContent = privacyOn ? '脱敏 开' : '脱敏';
+  const maskBtn = $('#btn-mask');
+  if (maskBtn) maskBtn.classList.toggle('btn-brand', privacyOn);
   $('#btn-privacy').classList.toggle('active', privacyOn);
   localStorage.setItem('zcgw_privacy', privacyOn ? '1' : '0');
   // 立即重绘当前页
@@ -911,6 +919,7 @@ function applyPrivacy() {
   else if (state.tab === 'stats') loadStats(state.statsRange).catch(() => {});
 }
 $('#btn-privacy').onclick = () => { privacyOn = !privacyOn; applyPrivacy(); toast('ok', privacyOn ? '隐私模式已开启' : '隐私模式已关闭', privacyOn ? '邮箱/手机号/昵称已脱敏，可放心截图' : '完整信息已恢复显示'); };
+$('#btn-mask').onclick = () => $('#btn-privacy').click();
 
 /* ── Toast ── */
 function toast(kind, title, body) {
