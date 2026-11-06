@@ -77,6 +77,7 @@
 
 ### 安全与运营
 
+- **面板登录保护** —— 管理面板与全部管理接口需管理员密码登录（scrypt 哈希 + HMAC 签名会话 Cookie，7 天有效）；登录失败按 IP 指数退避锁定，管理接口带 CSRF 同源校验
 - **IP 管控** —— 全局黑/白名单（IPv4/IPv6 CIDR），拦截审计保留 500 条（IP / 路径 / UA / 原因）
 - **openMode 防裸奔** —— 删光密钥只放行 `127.0.0.1`，外部一律 401
 - **用量统计** —— 14 天趋势图、按模型 / 密钥 / 账号聚合、今日 Token、缓存命中率
@@ -112,22 +113,37 @@
 
 服务器部署需要 Docker（1 核 1G 起）；本机自用只需 Node.js 22+。三种方式任选：
 
-### Docker Compose（推荐，服务器）
+### Docker 单容器（推荐，GHCR 预构建镜像）
+
+本仓库由 GitHub Actions 自动构建多架构镜像（`linux/amd64` / `linux/arm64`），推荐直接使用：
+
+| 镜像 | 说明 |
+|---|---|
+| `ghcr.io/sakuralaaa/zcode2api-2026.11:latest` | **推荐**：本仓库 main 分支最新构建（含面板登录保护） |
+| `ghcr.io/sakuralaaa/zcode2api-2026.11:sha-<短提交号>` | 固定到某次提交，便于回滚 |
+| `ghcr.io/sakuralaaa/zcode2api-2026.11:<版本号>` | 打 `v*` 标签时生成的语义化版本 |
+| `angusdevgo/zcode2api:latest` | 上游原版镜像（**不含**面板登录保护，不建议暴露到公网） |
 
 ```bash
-git clone https://github.com/angusdevgo/zcode2api.git
-cd zcode2api
+# 端口只绑本机：公网访问请走反向代理（HTTPS），并设置管理员密码
+docker run -d --name zcode2api -p 127.0.0.1:8787:8787 \
+  -e ADMIN_PASSWORD='换成你自己的强密码' \
+  -v /opt/zcode2api/data:/app/data \
+  ghcr.io/sakuralaaa/zcode2api-2026.11:latest
+```
+
+> 如果拉取时报 `unauthorized` / `denied`：GHCR 包默认是私有的，需要仓库主人在 GitHub「Packages → zcode2api-2026.11 → Package settings」里改成 Public，或先 `docker login ghcr.io` 再拉。
+
+### Docker Compose（服务器）
+
+```bash
+git clone https://github.com/Sakuralaaa/ZCode2api-2026.11.git
+cd ZCode2api-2026.11
+# 编辑 docker-compose.yml 填 ADMIN_PASSWORD（或留空，用日志里打印的初始密码）
 docker compose up -d --build
 ```
 
-数据落在宿主机 `./data/`，升级 = `git pull && docker compose up -d --build`。
-
-### Docker 单容器
-
-```bash
-# 端口只绑本机：公网访问请走反向代理（HTTPS + 访问控制），直接暴露管理面风险高
-docker run -d --name zcode2api -p 127.0.0.1:8787:8787 -v /opt/zcode2api/data:/app/data angusdevgo/zcode2api:latest
-```
+数据落在宿主机 `./data/`，升级 = `git pull && docker compose up -d --build`。也可以按 `docker-compose.yml` 顶部注释改用 GHCR 镜像，免本地构建。
 
 ### 裸机（零依赖）
 
@@ -135,13 +151,28 @@ docker run -d --name zcode2api -p 127.0.0.1:8787:8787 -v /opt/zcode2api/data:/ap
 node zcgw-server.mjs        # 只要 Node.js >= 22，无任何 npm install
 ```
 
-启动后浏览器打开 `http://<IP>:8787/`：
+启动后浏览器打开 `http://<IP>:8787/`，先用**管理员密码**登录（见下方「管理面板登录」）：
 
 1. **账号页** → 登录 ZCode 账号（设备授权流，或粘贴客户端 Token）→ 自动识别身份并领取额度
 2. **密钥页** → 新建一把 key（完整 key 只显示一次，立即复制）
 3. 把你的应用指向网关（见下）
 
-> 生产环境强烈建议套 nginx + TLS（`proxy_buffering off` 保 SSE；透传 `X-Forwarded-For` 供 IP 管控），并在面板「安全」页启用 IP 白名单。
+> 生产环境强烈建议套 nginx + TLS（`proxy_buffering off` 保 SSE；传 `X-Forwarded-For`（用 `$remote_addr` 覆盖，防伪造）供 IP 管控与登录防爆破、`X-Forwarded-Proto` 供登录 Cookie 判断 HTTPS），并在面板「安全」页启用 IP 白名单。
+
+### 管理面板登录
+
+面板（`/`）和所有管理接口都需要先登录；`/health` 与 `/v1/*` 模型 API 不受影响（模型 API 照旧用 `zck_` 密钥鉴权）。
+
+- **设置了 `ADMIN_PASSWORD`**：以环境变量为准（优先级最高，覆盖 `admin.json` 里的密码），面板内不能改，改环境变量后重启即可，旧会话自动失效
+- **没设置 `ADMIN_PASSWORD`**：首次启动自动生成一个 20 位随机密码，**只在启动日志里打印一次**（带「【重要】首次启动」字样），磁盘上只保存其 scrypt 哈希（`data/admin.json`，权限 600）：
+
+```bash
+docker compose logs zcgw | grep -A1 首次启动     # Compose
+docker logs zcode2api 2>&1 | grep -A1 首次启动   # 单容器
+```
+
+- 登录后可在面板右上角「修改密码」；改密后其他设备的会话全部失效
+- **忘记密码**：删除 `data/admin.json` 后重启，会重新生成并打印新密码（所有会话随之失效）
 
 ---
 
@@ -222,12 +253,20 @@ weight = (余额占比 ×10 + 闲置补偿 0.5/h 封顶5 + 成功率 ×3) × 账
 | `POST` | `/v1/chat/completions` | 网关密钥 | OpenAI Chat Completions 兼容（非流式整体返回） |
 | `GET` | `/v1/models` | 无 | 模型列表（`?api=anthropic` 切换 Anthropic 风格） |
 | `GET` | `/health` | 无 | 存活探测（含账号/密钥计数） |
-| `GET` | `/pool` `/quota` `/keys` `/stats` `/logs` `/security` `/pool/settings` | 面板 | 管理面板后端 |
-| `POST` | `/claim` `/pool/reset` `/selftest` | 面板 | 领取额度 / 解除冷却 / 连通自检 |
-| `POST` | `/accounts/add` `/accounts/update` `/accounts/identify` | 面板 | 账号纳管 / 修改 / 身份识别 |
-| `POST` | `/onboard/start` `/onboard/poll/{flowId}` | 面板 | 设备授权登录流 |
-| `POST` | `/keys` `/keys/{id}/update` `/keys/{id}/delete` `/keys/{id}/reset` | 面板 | 密钥管理 |
-| `GET/POST` | `/security` `/security/clear-blocked` | 面板 | IP 管控规则与审计 |
+| `GET` | `/login` | 无 | 管理面板登录页（未登录访问 `/` 也会显示登录页） |
+| `POST` | `/auth/login` | 无（防爆破 + 同源校验） | 管理员密码登录，下发会话 Cookie |
+| `POST` | `/auth/logout` | 无 | 退出登录（吊销当前会话） |
+| `GET` | `/auth/me` | 面板登录 | 当前登录状态 |
+| `POST` | `/auth/password` | 面板登录 | 修改管理员密码（`ADMIN_PASSWORD` 管理时不可用） |
+| `GET` | `/` `/dashboard` | 面板登录 | 管理面板 |
+| `GET` | `/pool` `/quota` `/keys` `/stats` `/logs` `/security` `/pool/settings` `/claimable` | 面板登录 | 管理面板后端 |
+| `POST` | `/claim` `/pool/reset` `/pool/settings` `/selftest` | 面板登录 | 领取额度 / 解除冷却 / 调度参数 / 连通自检 |
+| `POST` | `/accounts/add` `/accounts/update` `/accounts/identify` | 面板登录 | 账号纳管 / 修改 / 身份识别 |
+| `POST` / `GET` | `/onboard/start` `/onboard/poll/{flowId}` | 面板登录 | 设备授权登录流 |
+| `POST` | `/keys` `/keys/{id}/update` `/keys/{id}/delete` `/keys/{id}/reset` | 面板登录 | 密钥管理 |
+| `GET/POST` | `/security` `/security/clear-blocked` | 面板登录 | IP 管控规则与审计 |
+
+> 「面板登录」= 需要有效的会话 Cookie，未登录返回 `401 {"code":"unauthorized"}`；其中改状态的请求（POST 等）还要求 `Origin` / `Referer` 与 `Host` 同源（不带 Origin 的命令行客户端放行）。
 
 > 上游对接：所有 `/v1/*` 请求最终转发至 `https://zcode.z.ai/api/v1/zcode-plan/anthropic/v1/messages`（免费额度通道），转发前完成密钥鉴权 → IP 管控 → 账号派生指纹 → 协议转换。
 
@@ -238,6 +277,8 @@ weight = (余额占比 ×10 + 闲置补偿 0.5/h 封顶5 + 成功率 ×3) × 账
 | 变量 | 默认 | 说明 |
 |---|---|---|
 | `HOST` / `PORT` | `0.0.0.0` / `8787` | 监听地址 |
+| `ADMIN_PASSWORD` | 空 | 管理面板登录密码；设置后优先于 `data/admin.json`。留空则首次启动自动生成并打印在启动日志里 |
+| `ADMIN_COOKIE_SECURE` | 空（自动） | 会话 Cookie 的 `Secure` 标记：空 = 按 `X-Forwarded-Proto: https` 自动判断；`1` = 总是带（HTTPS 反代后推荐）；`0` = 从不带 |
 | `GATEWAY_KEY` | 空 | 主密钥（面板密钥之外的备份通道） |
 | `ZCGW_DATA_DIR` | 程序目录 | 数据目录（Docker 里指 `/app/data`） |
 | `ZCGW_MAX_INFLIGHT` | `5` | 单号在途上限 |
@@ -263,6 +304,7 @@ weight = (余额占比 ×10 + 闲置补偿 0.5/h 封顶5 + 成功率 ×3) × 账
 | `data/pool-state.json` | 冷却 / 成功率状态（重启恢复） |
 | `data/security.json` | IP 管控规则 + 拦截审计（500 条环形） |
 | `data/onboard-flows.json` | 进行中的登录授权流（重启不丢） |
+| `data/admin.json` | 管理员密码 scrypt 哈希 + 会话签名密钥（**敏感**，自动 chmod 600；删掉即重置密码） |
 | `zcode-profile.json` | ZCode 客户端指纹档案（请求头基底 + 官方 system 原文；公开仓库已脱敏运行时痕迹字段） |
 
 > 示例文件见 `data/*.example.json`。备份 = 打包整个 `data/` 目录。
@@ -271,6 +313,11 @@ weight = (余额占比 ×10 + 闲置补偿 0.5/h 封顶5 + 成功率 ×3) × 账
 
 ## 安全说明
 
+- **管理面板强制登录**：除 `/health` 与 `/v1/*` 模型 API 外，面板与所有管理接口（账号、密钥、调度、统计、日志、安全、领取额度、设备授权流……）都要求管理员登录，未登录一律 401
+- 管理员密码只存 scrypt 哈希，常数时间比对；会话 Cookie 用 HMAC-SHA256 签名，`HttpOnly` + `SameSite=Strict`，HTTPS 下带 `Secure`，有效期 7 天；签名里含密码指纹，**改密码即全部旧会话失效**，退出登录会吊销当前会话
+- 登录防爆破：同一来源 IP 连续失败 5 次后锁定，锁定时长从 30 秒起指数翻倍、封顶 15 分钟；每次失败写入启动日志和「安全」页拦截日志
+- CSRF 防护：改状态的管理请求校验 `Origin` / `Referer` 与 `Host` 同源，叠加 `SameSite=Strict`
+- 来源 IP 取 `X-Forwarded-For` 首段：**请务必只让反向代理访问网关端口**（默认已只绑 `127.0.0.1`），并让反代覆盖而不是追加该头（nginx：`proxy_set_header X-Forwarded-For $remote_addr;`），否则客户端可伪造 IP 绕过按 IP 的锁定与管控
 - 密钥只在创建时显示一次，库里只存 SHA-256 哈希；账号凭据不返回前端
 - 存在 ≥1 把密钥即强制鉴权；**删光密钥只放行 `127.0.0.1`**（openMode 防裸奔设计），外部一律 401
 - 入站 IP 黑 / 白名单（支持 IPv4/IPv6 CIDR）；拦截审计保留 IP / 路径 / UA / 原因

@@ -1,0 +1,72 @@
+# 构建并发布多架构 Docker 镜像到 GHCR
+#   - 推送到 main：打 latest + sha-<短提交号>
+#   - 推送 v* 标签：打语义化版本号（如 1.2.3 / 1.2）+ sha-<短提交号>
+#   - 也可在 Actions 页手动触发（workflow_dispatch）
+# 所有 action 均固定到完整 commit SHA（注释里是对应版本号），防止上游标签被篡改
+name: docker
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: docker-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # GHCR 镜像名必须全小写
+  IMAGE: ghcr.io/sakuralaaa/zcode2api-2026.11
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: 设置 QEMU（跨架构构建 arm64）
+        uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+
+      - name: 设置 Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: 登录 GHCR
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 生成镜像标签与 OCI 标注
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ${{ env.IMAGE }}
+          flavor: |
+            latest=false
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=sha,prefix=sha-,format=short
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+          # 默认已带 org.opencontainers.image.source / version / revision / created 等
+          labels: |
+            org.opencontainers.image.title=ZCode2API
+            org.opencontainers.image.description=智谱 ZCode 账号池管理控制台 · Anthropic / OpenAI 双协议反代网关
+
+      - name: 构建并推送（linux/amd64, linux/arm64）
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

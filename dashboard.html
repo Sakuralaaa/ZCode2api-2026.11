@@ -410,6 +410,14 @@
     <svg class="icon icon-sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
     <span id="lbl-privacy">隐私模式</span>
   </button>
+  <button class="pill-btn" id="btn-passwd" type="button" aria-label="修改管理员密码" title="修改管理员密码">
+    <svg class="icon icon-sm" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+    <span>修改密码</span>
+  </button>
+  <button class="pill-btn" id="btn-logout" type="button" aria-label="退出登录" title="退出管理面板登录">
+    <svg class="icon icon-sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5M21 12H9"/></svg>
+    <span>退出登录</span>
+  </button>
   <div class="seg" role="tablist" aria-label="账号归属筛选">
     <button type="button" data-realm-tab="all" aria-pressed="true">全部 <span class="num" id="tab-cnt-all">0</span></button>
     <button type="button" data-realm-tab="cn" aria-pressed="false">国内 <span class="num" id="tab-cnt-cn">0</span></button>
@@ -938,8 +946,18 @@ function toast(kind, title, body) {
   setTimeout(() => el.remove(), 3700);
 }
 
+/* ── 登录态：任何接口返回 401 即跳回登录页（记住当前页，登录后回来）── */
+let redirectingToLogin = false;
+function showLogin() {
+  if (redirectingToLogin) return;
+  redirectingToLogin = true;
+  try { sessionStorage.setItem('zcgw_next', location.hash || ''); } catch {}
+  location.replace('/login');
+}
+
 async function api(path, opts) {
-  const r = await fetch(path, opts);
+  const r = await fetch(path, { credentials: 'same-origin', ...(opts || {}) });
+  if (r.status === 401) { showLogin(); throw new Error('登录已失效，请重新登录'); }
   const text = await r.text();
   let data;
   try { data = text ? JSON.parse(text) : {}; } catch { throw new Error(`服务端响应异常（HTTP ${r.status}）`); }
@@ -2021,6 +2039,62 @@ document.addEventListener('keydown', (e) => {
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); openCommandPalette(); }
   if (e.key === 'Escape') { const m = document.querySelector('.modal-bg'); if (m) m.remove(); }
 });
+
+/* ── 退出登录 / 修改密码 ── */
+$('#btn-logout').onclick = async () => {
+  try { await postJson('/auth/logout', {}); } catch {}
+  redirectingToLogin = true;
+  location.replace('/login');
+};
+async function openPasswordModal() {
+  let me = {};
+  try { me = await api('/auth/me'); } catch (e) { return toast('err', '读取登录状态失败', e.message); }
+  const bg = document.createElement('div');
+  bg.className = 'modal-bg';
+  if (me.envManaged) {
+    bg.innerHTML = `<div class="modal" role="dialog" aria-modal="true" style="width:min(460px,94vw)">
+      <h3>修改管理员密码</h3>
+      <p>当前密码由环境变量 <code>ADMIN_PASSWORD</code> 管理，面板内无法修改。请修改环境变量（如 docker-compose.yml）后重启服务，旧的登录会话会自动失效。</p>
+      <div class="modal-foot"><button type="button" class="btn" id="pw-cancel">知道了</button></div>
+    </div>`;
+  } else {
+    bg.innerHTML = `<div class="modal" role="dialog" aria-modal="true" style="width:min(460px,94vw)">
+      <h3>修改管理员密码</h3>
+      <p>修改后其他设备上的登录会话全部失效，当前浏览器保持登录。</p>
+      <label for="pw-cur">当前密码</label>
+      <input id="pw-cur" type="password" autocomplete="current-password">
+      <label for="pw-new">新密码（至少 8 位）</label>
+      <input id="pw-new" type="password" autocomplete="new-password">
+      <label for="pw-new2">再次输入新密码</label>
+      <input id="pw-new2" type="password" autocomplete="new-password">
+      <div class="modal-foot"><button type="button" class="btn" id="pw-cancel">取消</button>
+        <button type="button" class="btn btn-brand" id="pw-save">保存新密码</button></div>
+    </div>`;
+  }
+  document.body.appendChild(bg);
+  const close = () => bg.remove();
+  bg.querySelector('#pw-cancel').onclick = close;
+  bg.onclick = (e) => { if (e.target === bg) close(); };
+  const save = bg.querySelector('#pw-save');
+  if (!save) return;
+  bg.querySelector('#pw-cur').focus();
+  save.onclick = async () => {
+    const cur = bg.querySelector('#pw-cur').value;
+    const n1 = bg.querySelector('#pw-new').value;
+    const n2 = bg.querySelector('#pw-new2').value;
+    if (!cur) return toast('warn', '请输入当前密码');
+    if (n1.length < 8) return toast('warn', '新密码太短', '至少 8 个字符');
+    if (n1 !== n2) return toast('warn', '两次输入的新密码不一致');
+    save.disabled = true;
+    try {
+      await postJson('/auth/password', { currentPassword: cur, newPassword: n1 });
+      close();
+      toast('ok', '密码已修改', '其他设备的登录已全部失效');
+    } catch (e) { toast('err', '修改失败', e.message); }
+    finally { save.disabled = false; }
+  };
+}
+$('#btn-passwd').onclick = () => openPasswordModal();
 
 /* ── 启动 ── */
 goTab((location.hash || '').replace(/^#\//, '') || 'dashboard', false);

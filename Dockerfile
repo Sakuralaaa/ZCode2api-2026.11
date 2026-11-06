@@ -6,7 +6,7 @@ RUN addgroup -S zcgw && adduser -S zcgw -G zcgw
 WORKDIR /app
 
 # 先拷程序（利用层缓存；数据卷挂 /app/data）
-COPY --chown=zcgw:zcgw zcgw-server.mjs zcgw-fingerprint.mjs zcode-profile.json dashboard.html ./
+COPY --chown=zcgw:zcgw zcgw-server.mjs zcgw-fingerprint.mjs zcode-profile.json dashboard.html login.html ./
 
 # 数据目录由 compose 挂载到宿主机 ./data（宿主机需 chown 100:101 给容器内 zcgw 用户）
 RUN mkdir -p /app/data && chown zcgw:zcgw /app/data

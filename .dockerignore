@@ -10,4 +10,5 @@ usage.jsonl
 pool-*.json
 security.json
 onboard-flows.json
+admin.json
 .git/

@@ -5,8 +5,15 @@
 #   docker compose down           # 停止（数据保留）
 #   docker compose up -d --build  # 更新代码后重建
 #
+# 推荐直接用 GitHub Actions 构建好的多架构镜像（amd64 / arm64），免本地构建：
+#   把下面的 build: . 删掉，image 改成 ghcr.io/sakuralaaa/zcode2api-2026.11:latest
+#   升级：docker compose pull && docker compose up -d
+#
 # 数据全部落在 ./data/（宿主机可备份/编辑）：
-#   accounts.json  keys.json  usage.jsonl  pool-*.json  security.json  onboard-flows.json
+#   accounts.json  keys.json  usage.jsonl  pool-*.json  security.json  onboard-flows.json  admin.json
+#
+# 管理面板需要登录：未设置 ADMIN_PASSWORD 时，首次启动会自动生成密码并打印在日志里，
+#   docker compose logs zcgw | grep -A1 首次启动
 #
 # 首次部署：把 accounts.json / keys.json 等放到 ./data/ 再 up，或启动后用面板添加。
 
@@ -22,6 +29,11 @@ services:
       # 监听容器内 0.0.0.0（必须，docker 端口映射依赖它）
       HOST: 0.0.0.0
       PORT: 8787
+      # 管理面板登录密码（强烈建议设置；设置后优先于 data/admin.json，且面板内不能改）
+      # 留空：首次启动自动生成随机密码，只在启动日志里打印一次，哈希存 data/admin.json
+      ADMIN_PASSWORD: ""
+      # 会话 Cookie 的 Secure 标记：留空按 X-Forwarded-Proto 自动判断；HTTPS 反代后可设 "1" 强制
+      # ADMIN_COOKIE_SECURE: "1"
       # 可选：主密钥（面板密钥之外的后门 key）；一般留空用面板建的 key
       GATEWAY_KEY: ""
       # 上游与模型（一般不用改）

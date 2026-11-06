@@ -923,6 +923,396 @@ function authenticate(req, model) {
   return { ok: true, key: k };
 }
 
+// ── 管理面板登录鉴权（管理员密码 + HMAC 签名会话 Cookie）──
+// 除 /health 与模型 API（/v1/* 等，走 zck_ 密钥鉴权）外，所有管理接口与面板都要先登录。
+// 密码来源优先级：环境变量 ADMIN_PASSWORD > DATA_DIR/admin.json 里的 scrypt 哈希 > 首次启动随机生成。
+const ADMIN_FILE = path.join(DATA_DIR, 'admin.json');
+const ADMIN_ENV_PASSWORD = process.env.ADMIN_PASSWORD || '';
+const ADMIN_COOKIE_SECURE = String(process.env.ADMIN_COOKIE_SECURE || '').trim(); // '1' 总是 Secure；'0' 从不；空 = 按 https 自动判断
+const SESSION_COOKIE = 'zcgw_session';
+const SESSION_TTL_MS = 7 * 24 * 3600_000;
+const SCRYPT_PARAMS = { N: 16384, r: 8, p: 1, keylen: 64 };
+const SCRYPT_MAXMEM = 64 * 1024 * 1024;
+// 进程内部自调用（启动刷余额、周末抢领）专用令牌：每次启动随机，只认回环来源
+const INTERNAL_TOKEN = crypto.randomBytes(32).toString('hex');
+const LOOPBACK_IPS = ['127.0.0.1', '::1', '::ffff:127.0.0.1'];
+
+function scryptAsync(password, salt, keylen, opts) {
+  return new Promise((resolve, reject) => {
+    crypto.scrypt(password, salt, keylen, opts, (err, dk) => (err ? reject(err) : resolve(dk)));
+  });
+}
+
+/** 生成 scrypt$N$r$p$salt$hash 格式的口令哈希 */
+function scryptHashSync(password) {
+  const { N, r, p, keylen } = SCRYPT_PARAMS;
+  const salt = crypto.randomBytes(16);
+  const dk = crypto.scryptSync(String(password), salt, keylen, { N, r, p, maxmem: SCRYPT_MAXMEM });
+  return `scrypt$${N}$${r}$${p}$${salt.toString('hex')}$${dk.toString('hex')}`;
+}
+
+/** 常数时间校验口令 */
+async function scryptVerify(password, stored) {
+  const parts = String(stored || '').split('$');
+  if (parts.length !== 6 || parts[0] !== 'scrypt') return false;
+  const [, N, r, p, saltHex, hashHex] = parts;
+  const expected = Buffer.from(hashHex, 'hex');
+  if (!expected.length) return false;
+  let dk;
+  try {
+    dk = await scryptAsync(String(password), Buffer.from(saltHex, 'hex'), expected.length, {
+      N: Number(N), r: Number(r), p: Number(p), maxmem: SCRYPT_MAXMEM,
+    });
+  } catch {
+    return false;
+  }
+  return dk.length === expected.length && crypto.timingSafeEqual(dk, expected);
+}
+
+function randomAdminPassword(len = 20) {
+  // 去掉易混字符（0/O/1/l/I）
+  const abc = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
+  let s = '';
+  for (let i = 0; i < len; i++) s += abc[crypto.randomInt(abc.length)];
+  return s;
+}
+
+function writeAdminFile() {
+  try {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+    fs.writeFileSync(ADMIN_FILE, JSON.stringify(adminCfg, null, 2), { mode: 0o600 });
+    try { fs.chmodSync(ADMIN_FILE, 0o600); } catch {}
+    return true;
+  } catch (e) {
+    log('写 admin.json 失败:', e.message);
+    return false;
+  }
+}
+
+let adminCfg = {};
+let adminFirstPassword = ''; // 仅首次生成时在启动日志里打印一次，打印后清空
+try {
+  if (fs.existsSync(ADMIN_FILE)) {
+    const obj = JSON.parse(fs.readFileSync(ADMIN_FILE, 'utf8'));
+    if (obj && typeof obj === 'object') adminCfg = obj;
+  }
+} catch (e) {
+  log(`WARNING: admin.json 解析失败（${e.message}），将重新初始化管理员凭据`);
+}
+{
+  let dirty = false;
+  if (typeof adminCfg.sessionSecret !== 'string' || adminCfg.sessionSecret.length < 32) {
+    adminCfg.sessionSecret = crypto.randomBytes(32).toString('hex');
+    dirty = true;
+  }
+  if (!Array.isArray(adminCfg.revoked)) adminCfg.revoked = [];
+  if (!ADMIN_ENV_PASSWORD && !adminCfg.passwordHash) {
+    adminFirstPassword = randomAdminPassword();
+    adminCfg.passwordHash = scryptHashSync(adminFirstPassword);
+    adminCfg.createdAt = Date.now();
+    adminCfg.updatedAt = Date.now();
+    dirty = true;
+  }
+  if (dirty && !writeAdminFile() && adminFirstPassword) {
+    log('WARNING: admin.json 写入失败，本次生成的初始密码只在本进程内有效，重启后会重新生成');
+  }
+  // 存量文件也收紧权限
+  try { if (fs.existsSync(ADMIN_FILE)) fs.chmodSync(ADMIN_FILE, 0o600); } catch {}
+}
+// 环境变量密码：启动时在内存里做一次 scrypt（随机盐），校验路径与文件密码一致
+const ADMIN_ENV_HASH = ADMIN_ENV_PASSWORD ? scryptHashSync(ADMIN_ENV_PASSWORD) : '';
+
+/** 当前密码指纹：参与会话签名，改密码 / 换 ADMIN_PASSWORD 后旧会话全部失效 */
+function adminPwFingerprint() {
+  const material = ADMIN_ENV_PASSWORD ? `env:${ADMIN_ENV_PASSWORD}` : `file:${adminCfg.passwordHash || ''}`;
+  return crypto.createHmac('sha256', adminCfg.sessionSecret).update(material).digest('hex').slice(0, 32);
+}
+
+async function verifyAdminPassword(pw) {
+  if (typeof pw !== 'string' || !pw || pw.length > 1024) return false;
+  return scryptVerify(pw, ADMIN_ENV_PASSWORD ? ADMIN_ENV_HASH : adminCfg.passwordHash);
+}
+
+function signSession(payloadB64) {
+  return crypto.createHmac('sha256', adminCfg.sessionSecret)
+    .update(`${payloadB64}.${adminPwFingerprint()}`).digest('base64url');
+}
+
+function issueSession() {
+  const now = Date.now();
+  const payload = Buffer.from(JSON.stringify({
+    v: 1, iat: now, exp: now + SESSION_TTL_MS, n: crypto.randomBytes(12).toString('hex'),
+  })).toString('base64url');
+  return { token: `${payload}.${signSession(payload)}`, exp: now + SESSION_TTL_MS };
+}
+
+function parseCookies(req) {
+  const out = {};
+  for (const part of String(req.headers.cookie || '').split(';')) {
+    const i = part.indexOf('=');
+    if (i < 0) continue;
+    const k = part.slice(0, i).trim();
+    if (k && !(k in out)) out[k] = part.slice(i + 1).trim();
+  }
+  return out;
+}
+
+/** 校验会话 Cookie；有效返回 payload，否则 null */
+function verifySession(req) {
+  const tok = parseCookies(req)[SESSION_COOKIE];
+  if (!tok || tok.length > 512) return null;
+  const dot = tok.lastIndexOf('.');
+  if (dot <= 0) return null;
+  const payloadB64 = tok.slice(0, dot);
+  const got = Buffer.from(tok.slice(dot + 1));
+  const want = Buffer.from(signSession(payloadB64));
+  if (got.length !== want.length || !crypto.timingSafeEqual(got, want)) return null;
+  let p;
+  try { p = JSON.parse(Buffer.from(payloadB64, 'base64url').toString('utf8')); } catch { return null; }
+  if (!p || p.v !== 1 || !(p.exp > Date.now())) return null;
+  if (adminCfg.revoked.some((r) => r.n === p.n)) return null;
+  return p;
+}
+
+function requestIsHttps(req) {
+  if (req.socket?.encrypted) return true;
+  return String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim().toLowerCase() === 'https';
+}
+
+function sessionCookie(req, value, maxAgeSec) {
+  const secure = ADMIN_COOKIE_SECURE === '1' || (ADMIN_COOKIE_SECURE !== '0' && requestIsHttps(req));
+  return `${SESSION_COOKIE}=${value}; Path=/; Max-Age=${maxAgeSec}; HttpOnly; SameSite=Strict${secure ? '; Secure' : ''}`;
+}
+
+/** CSRF：有 Origin 必须同源；无 Origin 时看 Referer；都没有（curl 等非浏览器客户端）放行 */
+function sameOriginRequest(req) {
+  const hosts = new Set(
+    [req.headers.host, String(req.headers['x-forwarded-host'] || '').split(',')[0]]
+      .map((h) => String(h || '').trim().toLowerCase()).filter(Boolean),
+  );
+  const match = (u) => {
+    try { return hosts.has(new URL(u).host.toLowerCase()); } catch { return false; }
+  };
+  if (String(req.headers['sec-fetch-site'] || '').toLowerCase() === 'cross-site') return false;
+  const origin = req.headers.origin;
+  if (origin !== undefined) return origin !== 'null' && match(origin);
+  const ref = req.headers.referer;
+  if (ref) return match(ref);
+  return true;
+}
+
+// ── 登录防爆破：按来源 IP 计数，连续失败 5 次后指数退避锁定（30s 起，封顶 15 分钟）──
+const LOGIN_FREE_TRIES = 5;
+const LOGIN_BASE_LOCK_MS = 30_000;
+const LOGIN_MAX_LOCK_MS = 15 * 60_000;
+const loginFails = new Map(); // ip -> { fails, lockedUntil, lastAt }
+
+function loginLockRemaining(ip) {
+  const e = loginFails.get(ip);
+  return e && e.lockedUntil > Date.now() ? e.lockedUntil - Date.now() : 0;
+}
+
+function noteLoginFail(req, ip, what) {
+  const now = Date.now();
+  const e = loginFails.get(ip) || { fails: 0, lockedUntil: 0, lastAt: 0 };
+  e.fails += 1;
+  e.lastAt = now;
+  let lockMs = 0;
+  if (e.fails >= LOGIN_FREE_TRIES) {
+    lockMs = Math.min(LOGIN_MAX_LOCK_MS, LOGIN_BASE_LOCK_MS * 2 ** Math.min(10, e.fails - LOGIN_FREE_TRIES));
+    e.lockedUntil = now + lockMs;
+  }
+  loginFails.set(ip, e);
+  const ua = String(req.headers['user-agent'] || '').slice(0, 80);
+  log(`[admin] ${what}失败 ip=${ip} 连续第 ${e.fails} 次${lockMs ? `，锁定 ${Math.round(lockMs / 1000)} 秒` : ''} ua=${ua}`);
+  secLogBlocked(req, '/auth/login', `管理面板${what}失败（第 ${e.fails} 次${lockMs ? `，锁定 ${Math.round(lockMs / 1000)}s` : ''}）`);
+  return { fails: e.fails, lockMs, left: Math.max(0, LOGIN_FREE_TRIES - e.fails) };
+}
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [ip, e] of loginFails) {
+    if (e.lockedUntil < now && now - e.lastAt > 3600_000) loginFails.delete(ip);
+  }
+  const before = adminCfg.revoked.length;
+  adminCfg.revoked = adminCfg.revoked.filter((r) => r.exp > now);
+  if (adminCfg.revoked.length !== before) writeAdminFile();
+}, 10 * 60_000).unref();
+
+async function readSmallBody(req, limit = 8192) {
+  const chunks = [];
+  let size = 0;
+  for await (const c of req) {
+    size += c.length;
+    if (size > limit) throw Object.assign(new Error('请求体过大'), { status: 413 });
+    chunks.push(c);
+  }
+  const raw = Buffer.concat(chunks).toString('utf8');
+  if (!raw) return {};
+  if (String(req.headers['content-type'] || '').includes('application/x-www-form-urlencoded')) {
+    return Object.fromEntries(new URLSearchParams(raw));
+  }
+  try { return JSON.parse(raw); } catch { return {}; }
+}
+
+function serveLoginPage(res) {
+  const f = path.join(import.meta.dirname, 'login.html');
+  const buf = fs.existsSync(f)
+    ? fs.readFileSync(f)
+    : Buffer.from('<!doctype html><meta charset="utf-8"><title>登录</title><p>login.html 缺失</p>');
+  res.writeHead(200, {
+    'content-type': 'text/html; charset=utf-8',
+    'content-length': buf.length,
+    'cache-control': 'no-store, must-revalidate',
+    'x-frame-options': 'DENY',
+  });
+  res.end(buf);
+}
+
+async function handleAdminLogin(req, res) {
+  const ip = clientIp(req);
+  const wait = loginLockRemaining(ip);
+  if (wait > 0) {
+    const sec = Math.ceil(wait / 1000);
+    log(`[admin] 登录被拒（锁定中，还剩 ${sec} 秒）ip=${ip}`);
+    res.setHeader('retry-after', String(sec));
+    return sendJson(res, 429, { error: `尝试次数过多，请 ${sec} 秒后再试`, retryAfter: sec });
+  }
+  const body = await readSmallBody(req);
+  if (!(await verifyAdminPassword(body.password))) {
+    const r = noteLoginFail(req, ip, '登录');
+    if (r.lockMs) {
+      const sec = Math.ceil(r.lockMs / 1000);
+      res.setHeader('retry-after', String(sec));
+      return sendJson(res, 429, { error: `密码错误次数过多，已锁定 ${sec} 秒`, retryAfter: sec });
+    }
+    return sendJson(res, 401, { error: '密码错误', remainingTries: r.left });
+  }
+  loginFails.delete(ip);
+  const s = issueSession();
+  log(`[admin] 登录成功 ip=${ip}`);
+  res.setHeader('set-cookie', sessionCookie(req, s.token, Math.floor(SESSION_TTL_MS / 1000)));
+  return sendJson(res, 200, { ok: true, expiresAt: s.exp });
+}
+
+function handleAdminLogout(req, res) {
+  const p = verifySession(req);
+  if (p) {
+    adminCfg.revoked.push({ n: p.n, exp: p.exp });
+    adminCfg.revoked = adminCfg.revoked.filter((r) => r.exp > Date.now()).slice(-500);
+    writeAdminFile();
+    log(`[admin] 已退出登录 ip=${clientIp(req)}`);
+  }
+  res.setHeader('set-cookie', sessionCookie(req, '', 0));
+  return sendJson(res, 200, { ok: true });
+}
+
+async function handleAdminPassword(req, res) {
+  if (ADMIN_ENV_PASSWORD) {
+    return sendJson(res, 409, { error: '当前密码由环境变量 ADMIN_PASSWORD 管理，请修改环境变量后重启服务' });
+  }
+  const ip = clientIp(req);
+  const wait = loginLockRemaining(ip);
+  if (wait > 0) {
+    const sec = Math.ceil(wait / 1000);
+    res.setHeader('retry-after', String(sec));
+    return sendJson(res, 429, { error: `尝试次数过多，请 ${sec} 秒后再试`, retryAfter: sec });
+  }
+  const body = await readSmallBody(req);
+  const next = typeof body.newPassword === 'string' ? body.newPassword : '';
+  if (next.length < 8 || next.length > 256) return sendJson(res, 400, { error: '新密码长度需在 8～256 个字符之间' });
+  // 注意：当前密码错返回 403 而不是 401，免得面板把人踢回登录页
+  if (!(await verifyAdminPassword(body.currentPassword))) {
+    noteLoginFail(req, ip, '修改密码（当前密码校验）');
+    return sendJson(res, 403, { error: '当前密码不正确' });
+  }
+  loginFails.delete(ip);
+  adminCfg.passwordHash = scryptHashSync(next);
+  adminCfg.updatedAt = Date.now();
+  adminCfg.revoked = [];
+  if (!writeAdminFile()) return sendJson(res, 500, { error: '写入 admin.json 失败，密码未持久化' });
+  log(`[admin] 管理员密码已修改，旧会话全部失效 ip=${ip}`);
+  // 指纹已变：给当前浏览器重新签一张，其余会话全部作废
+  const s = issueSession();
+  res.setHeader('set-cookie', sessionCookie(req, s.token, Math.floor(SESSION_TTL_MS / 1000)));
+  return sendJson(res, 200, { ok: true });
+}
+
+/** 模型 API（走 zck_ 密钥鉴权，不受面板登录影响） */
+function isModelApiPath(pathname) {
+  const p = pathname.replace(/^\/v1\/v1(?=\/|$)/, '/v1');
+  return p === '/v1' || p.startsWith('/v1/') || p === '/models' || p === '/messages' || p === '/chat/completions';
+}
+
+function isInternalCall(req) {
+  const tok = String(req.headers['x-zcgw-internal'] || '');
+  if (!tok || !LOOPBACK_IPS.includes(req.socket?.remoteAddress || '')) return false;
+  const a = Buffer.from(tok), b = Buffer.from(INTERNAL_TOKEN);
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
+/**
+ * 管理面板闸门：返回 true 表示已经响应（登录页 / 401 / 403 / 认证接口），false 表示放行到原路由。
+ */
+function adminGate(req, res, url) {
+  const p = url.pathname;
+  if (req.method === 'GET' && p === '/health') return false;
+  if (isModelApiPath(p)) return false;
+
+  const fail = (e) => {
+    log('[admin] 处理出错:', e?.message ?? String(e));
+    if (!res.headersSent) sendJson(res, e?.status || 500, { error: e?.message || '服务端错误' });
+    else res.end();
+  };
+  const csrfOk = () => {
+    if (sameOriginRequest(req)) return true;
+    log(`[admin] 拒绝跨站请求 ${req.method} ${p} ip=${clientIp(req)} origin=${req.headers.origin || '-'} referer=${req.headers.referer || '-'}`);
+    sendJson(res, 403, { error: '跨站请求被拒绝（Origin/Referer 与 Host 不一致）' });
+    return false;
+  };
+
+  if (req.method === 'GET' && p === '/login') {
+    if (verifySession(req)) {
+      res.writeHead(302, { location: '/', 'cache-control': 'no-store' });
+      res.end();
+      return true;
+    }
+    serveLoginPage(res);
+    return true;
+  }
+  if (req.method === 'POST' && p === '/auth/login') {
+    if (csrfOk()) handleAdminLogin(req, res).catch(fail);
+    return true;
+  }
+  if (req.method === 'POST' && p === '/auth/logout') {
+    if (csrfOk()) handleAdminLogout(req, res);
+    return true;
+  }
+
+  if (isInternalCall(req)) return false;
+
+  const session = verifySession(req);
+  if (!session) {
+    if (req.method === 'GET' && (p === '/' || p === '/dashboard')) {
+      serveLoginPage(res);
+      return true;
+    }
+    sendJson(res, 401, { error: '未登录或登录已过期，请先登录管理面板', code: 'unauthorized' });
+    return true;
+  }
+  if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method) && !csrfOk()) return true;
+
+  if (req.method === 'GET' && p === '/auth/me') {
+    sendJson(res, 200, { ok: true, expiresAt: session.exp, envManaged: !!ADMIN_ENV_PASSWORD });
+    return true;
+  }
+  if (req.method === 'POST' && p === '/auth/password') {
+    handleAdminPassword(req, res).catch(fail);
+    return true;
+  }
+  return false;
+}
+
 // ── 用量采集（内存环形 + jsonl 落盘）──
 const USAGE_MAX = 6000;
 let usageLog = [];
@@ -2197,6 +2587,8 @@ async function handleSecurityUpdate(req, res) {
 
 const server = http.createServer((req, res) => {
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+  // 管理面板登录闸门：/health 与模型 API 之外一律要求登录
+  if (adminGate(req, res, url)) return;
   if (req.method === 'GET' && (url.pathname === '/' || url.pathname === '/dashboard')) {
     const f = path.join(import.meta.dirname, 'dashboard.html');
     if (!fs.existsSync(f)) return sendJson(res, 404, { error: 'dashboard.html 缺失' });
@@ -2334,6 +2726,22 @@ server.listen(PORT, HOST, () => {
   log(`gateway key: ${GATEWAY_KEY ? '(set)' : '(WARNING: 未设置，任何人可用)'}`);
   log(`scheduler: weighted-random topN=${POOL.topN} sticky=${POOL.stickyTtlMin}min`);
 
+  // 管理面板鉴权状态
+  if (ADMIN_ENV_PASSWORD) {
+    log('管理面板：已启用登录保护（密码来自环境变量 ADMIN_PASSWORD）');
+  } else if (adminFirstPassword) {
+    log('══════════════════════════════════════════════════════════════');
+    log('  【重要】首次启动，已自动生成管理面板登录密码（只显示这一次）：');
+    log(`      ${adminFirstPassword}`);
+    log(`  明文不落盘，仅其 scrypt 哈希保存在 ${ADMIN_FILE}（权限 600）`);
+    log('  请立即保存；登录后可在面板右上角「修改密码」，或设置环境变量 ADMIN_PASSWORD 覆盖');
+    log('  忘记密码：删除 admin.json 后重启，会重新生成并打印新密码');
+    log('══════════════════════════════════════════════════════════════');
+    adminFirstPassword = '';
+  } else {
+    log(`管理面板：已启用登录保护（密码哈希来自 ${ADMIN_FILE}）`);
+  }
+
   // 服务器生产环境自检提示（一次性）
   if (HOST === '0.0.0.0') {
     if (!GATEWAY_KEY && keyDb.keys.filter((k) => !k.deleted).length === 0) {
@@ -2349,7 +2757,7 @@ server.listen(PORT, HOST, () => {
   loadPoolState();
   const refreshQuotaWeights = async () => {
     try {
-      const r = await fetch(`http://127.0.0.1:${PORT}/quota`);
+      const r = await fetch(`http://127.0.0.1:${PORT}/quota`, { headers: { 'x-zcgw-internal': INTERNAL_TOKEN } });
       await r.json();
     } catch {}
   };
@@ -2377,7 +2785,7 @@ server.listen(PORT, HOST, () => {
           const kinds = new Set(active.map((p) => describePlan(p.plan_id, p.name).kind));
           if (kinds.has('promo')) continue;
           const r = await fetch(`http://127.0.0.1:${PORT}/claim`, {
-            method: 'POST', headers: { 'content-type': 'application/json' },
+            method: 'POST', headers: { 'content-type': 'application/json', 'x-zcgw-internal': INTERNAL_TOKEN },
             body: JSON.stringify({ label: acc.label }),
           });
           const j = await safeJson(r);

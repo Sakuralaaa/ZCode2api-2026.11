@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>ZCode2API · 登录</title>
+<style>
+  :root,
+  [data-theme="light"] {
+    --bg-canvas: #fafaf8;
+    --bg-surface: #f2f1ee;
+    --bg-surface-inner: #ffffff;
+    --bg-surface-hover: #eae8e3;
+    --bg-elevated: rgba(255, 255, 255, 0.9);
+    --border-subtle: rgba(20, 20, 19, 0.07);
+    --border-strong: rgba(20, 20, 19, 0.14);
+    --border-focus: #d96b16;
+    --text-primary: #141413;
+    --text-secondary: #5f5e59;
+    --text-muted: #8c8a82;
+    --brand: #d96b16;
+    --brand-hover: #c25d10;
+    --brand-soft: #f7e6d5;
+    --brand-text: #9a4708;
+    --ok: #0d9456;
+    --ok-soft: #e3f5ec;
+    --ok-border: rgba(13, 148, 86, 0.22);
+    --daily: #0277bd;
+    --daily-soft: #e1f1fb;
+    --daily-border: rgba(2, 119, 189, 0.22);
+    --warn: #d97706;
+    --warn-soft: #fef3c7;
+    --warn-border: rgba(217, 119, 6, 0.26);
+    --bad: #dc2626;
+    --bad-soft: #fee2e2;
+    --bad-border: rgba(220, 38, 38, 0.24);
+    --shadow-card: 0 1px 2px rgba(20, 20, 19, 0.03);
+    --shadow-float: 0 12px 36px rgba(20, 20, 19, 0.10), 0 2px 8px rgba(20, 20, 19, 0.05);
+    --scrim: rgba(20, 20, 19, 0.42);
+    --bar-track: #e7e5e0;
+  }
+  [data-theme="dark"] {
+    --bg-canvas: #0b0c0e;
+    --bg-surface: #131519;
+    --bg-surface-inner: #191c22;
+    --bg-surface-hover: #21252d;
+    --bg-elevated: rgba(25, 28, 34, 0.9);
+    --border-subtle: rgba(255, 255, 255, 0.07);
+    --border-strong: rgba(255, 255, 255, 0.14);
+    --border-focus: #f59e0b;
+    --text-primary: #f2f3f5;
+    --text-secondary: #9ca1ab;
+    --text-muted: #6c717b;
+    --brand: #f59e0b;
+    --brand-hover: #d97706;
+    --brand-soft: rgba(245, 158, 11, 0.15);
+    --brand-text: #fbbf24;
+    --ok: #10b981;
+    --ok-soft: rgba(16, 185, 129, 0.14);
+    --ok-border: rgba(16, 185, 129, 0.28);
+    --daily: #38bdf8;
+    --daily-soft: rgba(56, 189, 248, 0.14);
+    --daily-border: rgba(56, 189, 248, 0.28);
+    --warn: #fbbf24;
+    --warn-soft: rgba(251, 191, 36, 0.15);
+    --warn-border: rgba(251, 191, 36, 0.3);
+    --bad: #f87171;
+    --bad-soft: rgba(248, 113, 113, 0.15);
+    --bad-border: rgba(248, 113, 113, 0.3);
+    --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.25);
+    --shadow-float: 0 16px 40px rgba(0, 0, 0, 0.55), 0 2px 10px rgba(0, 0, 0, 0.35);
+    --scrim: rgba(5, 6, 8, 0.7);
+    --bar-track: #262a32;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg-canvas); color: var(--text-primary); min-height: 100%; }
+  body {
+    font: 14px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+    display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 16px;
+  }
+  button, input { transition: background-color 150ms cubic-bezier(0.16, 1, 0.3, 1), border-color 150ms cubic-bezier(0.16, 1, 0.3, 1), opacity 150ms; }
+  button:focus-visible, input:focus-visible { outline: 2px solid var(--border-focus); outline-offset: 2px; }
+  .icon { width: 16px; height: 16px; stroke: currentColor; stroke-width: 1.75; fill: none; flex: none; }
+  .card {
+    width: min(400px, 100%); background: var(--bg-surface-inner); border: 1px solid var(--border-strong);
+    border-radius: 18px; padding: 28px 26px 24px; box-shadow: var(--shadow-float);
+  }
+  .brand { display: flex; align-items: center; gap: 10px; margin-bottom: 18px; }
+  .brand-ico {
+    width: 38px; height: 38px; border-radius: 12px; background: var(--brand-soft); color: var(--brand-text);
+    display: inline-flex; align-items: center; justify-content: center;
+  }
+  .brand-ico .icon { width: 20px; height: 20px; }
+  h1 { font-size: 20px; font-weight: 700; letter-spacing: -0.02em; margin: 0; }
+  .sub { margin: 2px 0 0; color: var(--text-secondary); font-size: 13px; }
+  label { display: block; font-size: 12.5px; font-weight: 600; color: var(--text-secondary); margin: 6px 0 6px; }
+  input {
+    width: 100%; height: 42px; background: var(--bg-surface); border: 1px solid var(--border-subtle);
+    border-radius: 10px; color: var(--text-primary); padding: 0 12px; font-size: 14px;
+  }
+  input:focus { border-color: var(--border-focus); outline: none; }
+  .btn-brand {
+    width: 100%; margin-top: 16px; min-height: 42px; border-radius: 10px; border: 1px solid var(--brand);
+    background: var(--brand); color: #fff; font-size: 14px; font-weight: 600; cursor: pointer;
+  }
+  .btn-brand:hover:not(:disabled) { background: var(--brand-hover); border-color: var(--brand-hover); }
+  .btn-brand:disabled { opacity: .55; cursor: not-allowed; }
+  .msg {
+    display: none; margin-top: 12px; padding: 9px 12px; border-radius: 10px; font-size: 12.5px;
+    background: var(--bad-soft); border: 1px solid var(--bad-border); color: var(--bad);
+  }
+  .msg.show { display: block; }
+  .hint { margin-top: 16px; font-size: 12px; color: var(--text-muted); line-height: 1.5; }
+  .hint code { font-family: ui-monospace, "SF Mono", Consolas, monospace; font-size: 11.5px; }
+</style>
+</head>
+<body>
+<main class="card" role="main">
+  <div class="brand">
+    <span class="brand-ico" aria-hidden="true"><svg class="icon" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/><path d="m9 12 2 2 4-4"/></svg></span>
+    <div>
+      <h1>ZCode2API 控制台</h1>
+      <p class="sub">请输入管理员密码登录</p>
+    </div>
+  </div>
+  <form id="f" method="post" action="/auth/login" autocomplete="on">
+    <input type="text" name="username" value="admin" autocomplete="username" hidden aria-hidden="true">
+    <label for="pw">管理员密码</label>
+    <input id="pw" name="password" type="password" autocomplete="current-password" required autofocus>
+    <button class="btn-brand" id="go" type="submit">登录</button>
+    <div class="msg" id="msg" role="alert"></div>
+  </form>
+  <p class="hint">首次启动时，若未设置环境变量 <code>ADMIN_PASSWORD</code>，初始密码会打印在服务启动日志里（<code>docker compose logs zcgw</code>）。登录状态保持 7 天。</p>
+</main>
+<script>
+document.documentElement.setAttribute('data-theme', localStorage.getItem('zcgw_theme') || 'light');
+const f = document.getElementById('f'), go = document.getElementById('go'), msg = document.getElementById('msg'), pw = document.getElementById('pw');
+let timer = null;
+function show(text) { msg.textContent = text; msg.classList.add('show'); }
+function lockFor(sec) {
+  clearInterval(timer);
+  go.disabled = true;
+  const tick = () => {
+    if (sec <= 0) { clearInterval(timer); go.disabled = false; go.textContent = '登录'; return; }
+    go.textContent = `请 ${sec} 秒后再试`;
+    sec -= 1;
+  };
+  tick();
+  timer = setInterval(tick, 1000);
+}
+f.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  msg.classList.remove('show');
+  go.disabled = true;
+  go.textContent = '登录中…';
+  try {
+    const r = await fetch('/auth/login', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, credentials: 'same-origin',
+      body: JSON.stringify({ password: pw.value }),
+    });
+    const data = await r.json().catch(() => ({}));
+    if (r.ok) {
+      const next = sessionStorage.getItem('zcgw_next') || '';
+      sessionStorage.removeItem('zcgw_next');
+      location.replace('/' + (/^#\/[a-z]+$/.test(next) ? next : ''));
+      return;
+    }
+    if (r.status === 429) {
+      show(data.error || '尝试次数过多，请稍后再试');
+      lockFor(Number(data.retryAfter || r.headers.get('retry-after') || 30));
+      pw.value = '';
+      return;
+    }
+    show((data.error || `登录失败（HTTP ${r.status}）`) + (data.remainingTries > 0 ? `，还可尝试 ${data.remainingTries} 次` : ''));
+    pw.select();
+  } catch (err) {
+    show('网络异常：' + err.message);
+  }
+  go.disabled = false;
+  go.textContent = '登录';
+});
+</script>
+</body>
+</html>

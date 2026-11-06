@@ -6,6 +6,7 @@ keys*.json
 pool-*.json
 security.json
 onboard-flows.json
+admin.json
 !zcode-profile.json
 
 # 运行时产物
