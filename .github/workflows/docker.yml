@@ -1,4 +1,6 @@
-# 构建并发布多架构 Docker 镜像到 GHCR
+# 构建并发布多架构 Docker 镜像到 GHCR（两个镜像：网关 + 验证码 sidecar）
+#   - ghcr.io/sakuralaaa/zcode2api-2026.11          网关（根目录 Dockerfile）
+#   - ghcr.io/sakuralaaa/zcode2api-2026.11-captcha  验证码 sidecar（captcha/Dockerfile，可选）
 #   - 推送到 main：打 latest + sha-<短提交号>
 #   - 推送 v* 标签：打语义化版本号（如 1.2.3 / 1.2）+ sha-<短提交号>
 #   - 也可在 Actions 页手动触发（workflow_dispatch）
@@ -19,13 +21,25 @@ concurrency:
   group: docker-${{ github.ref }}
   cancel-in-progress: true
 
-env:
-  # GHCR 镜像名必须全小写
-  IMAGE: ghcr.io/sakuralaaa/zcode2api-2026.11
-
 jobs:
   build:
+    name: build (${{ matrix.name }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # GHCR 镜像名必须全小写
+          - name: gateway
+            context: .
+            image: ghcr.io/sakuralaaa/zcode2api-2026.11
+            title: ZCode2API
+            description: 智谱 ZCode 账号池管理控制台 · Anthropic / OpenAI 双协议反代网关
+          - name: captcha
+            context: ./captcha
+            image: ghcr.io/sakuralaaa/zcode2api-2026.11-captcha
+            title: ZCode2API Captcha Sidecar
+            description: ZCode2API 可选验证码 sidecar · 真实浏览器运行阿里云官方 SDK 无痕验证，为领取额度铸造参数
     steps:
       - name: 检出代码
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -47,7 +61,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         with:
-          images: ${{ env.IMAGE }}
+          images: ${{ matrix.image }}
           flavor: |
             latest=false
           tags: |
@@ -57,16 +71,17 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
           # 默认已带 org.opencontainers.image.source / version / revision / created 等
           labels: |
-            org.opencontainers.image.title=ZCode2API
-            org.opencontainers.image.description=智谱 ZCode 账号池管理控制台 · Anthropic / OpenAI 双协议反代网关
+            org.opencontainers.image.title=${{ matrix.title }}
+            org.opencontainers.image.description=${{ matrix.description }}
 
       - name: 构建并推送（linux/amd64, linux/arm64）
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
-          context: .
+          context: ${{ matrix.context }}
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          # 两个镜像分开缓存，互不覆盖
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}
