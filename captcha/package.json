@@ -1,0 +1,13 @@
+{
+  "name": "zcgw-captcha",
+  "version": "1.0.0",
+  "private": true,
+  "description": "ZCode 领取额度用的阿里云无痕验证参数铸造 sidecar（官方 SDK + 真实浏览器，不解可见挑战）",
+  "type": "module",
+  "main": "server.mjs",
+  "engines": { "node": ">=22" },
+  "scripts": { "start": "node server.mjs" },
+  "dependencies": {
+    "playwright-core": "1.65.0"
+  }
+}
