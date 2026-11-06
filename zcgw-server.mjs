@@ -255,11 +255,11 @@ function loadAccounts() {
 
   const jwt = localJwt();
   if (!jwt) {
-    console.error('既没有 accounts.json，也没有本地 ZCode 登录态。');
-    console.error('先打开 ZCode 客户端登录一次，或用面板的登录按钮纳管账号。');
-    process.exit(1);
+    // 不退出：先把服务和面板跑起来，在面板里登录纳管账号后即可使用
+    console.log('还没有任何 ZCode 账号：打开管理面板，用「登录」按钮纳管账号后即可调用 /v1 接口');
+    return [];
   }
-  log('未找到 accounts.json，使用本地 ZCode 客户端凭证（单账号模式）');
+  console.log('未找到 accounts.json，使用本地 ZCode 客户端凭证（单账号模式）');
   const uid = userIdFromJwt(jwt);
   return [
     {
@@ -1496,6 +1496,9 @@ async function handleOpenAIChat(req, res) {
   basePayload.stream = false;
   const sessionKey = sessionKeyOf(req, inbound);
 
+  if (accounts.length === 0) {
+    return sendJson(res, 503, { error: { message: '还没有可用的 ZCode 账号，请先在管理面板登录纳管账号', type: 'api_error' } });
+  }
   const maxAttempts = Math.min(accounts.length, 4);
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     if (attempt > 0) stickyUnbind(sessionKey);
@@ -1591,6 +1594,9 @@ async function handleMessages(req, res) {
   const basePayload = buildUpstreamBody(inbound, { uid: 'placeholder' });
   const sessionKey = sessionKeyOf(req, inbound);
 
+  if (accounts.length === 0) {
+    return sendJson(res, 503, { error: { message: '还没有可用的 ZCode 账号，请先在管理面板登录纳管账号', type: 'api_error' } });
+  }
   const maxAttempts = Math.min(accounts.length, 4);
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     // 重试时先解绑粘性：粘住的号已经失败过，继续粘着只会再撞一次墙
