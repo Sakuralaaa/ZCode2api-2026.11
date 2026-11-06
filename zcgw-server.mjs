@@ -1784,7 +1784,9 @@ function handlePool(req, res) {
       weight: Math.round(weightOf(a, Math.max(1, ...accounts.map((x) => quotaCache.get(x.label)?.remaining || 0)), now) * 10) / 10,
       lastSuccess: a.lastSuccess,
       lastErr: a.lastErr,
+      autoClaim: autoClaimDb[a.label]?.last || null,
     })),
+    autoClaim: autoClaimInfo(),
   });
 }
 
@@ -1842,27 +1844,200 @@ async function handleQuota(req, res) {
   sendJson(res, 200, { accounts: out });
 }
 
-/** 可领取的 plan 列表 + 候选 id（preview 为空时用来兑底） */
-async function claimableFor(acc) {
-  const r = await fetch(
-    `${UPSTREAM_ORIGIN}/api/v1/zcode-plan/billing/preview?app_version=${APP_VERSION}&platform=win32-x64`,
-    { headers: upstreamHeaders(acc), signal: AbortSignal.timeout(20000) },
-  );
-  const j = await safeJson(r);
-  const plans = (j.data?.plans ?? []).map((p) => ({
-    planId: p.plan_id,
-    name: p.name,
-    description: p.description,
-    entitlements: (p.entitlements ?? []).map((e) => ({
-      model: e.show_name,
-      grant: e.grant_units,
-      period: e.period,
-    })),
-  }));
-  return { plans, rawCode: j.code ?? (j.__error ? -1 : 0), rawMsg: j.msg ?? j.__error ?? '' };
+// ── 领取额度：发现（marketing/touch + preview + 兜底猜测）→ 铸验证码参数 → billing/claim ──
+//
+// 2026-11-03 起：billing/preview 基本为空，当日活动包改由营销投放流 GET /api/v1/marketing/touch 下发，
+// 且投放按客户端版本灰度（3.16.3 头拿到空 deliveries，3.17.2 才有）。claim 本身不变，但要求
+// 阿里云无痕验证参数（X-Aliyun-Captcha-Verify-Param），否则 400 {code:3007,"captcha verify failed"}。
+// 参数只能由真实浏览器里的官方 SDK 产出 → 由可选的 captcha sidecar（captcha/ 目录）铸造。
+// 领取相关请求用的客户端版本（与模型请求的 APP_VERSION 分开，避免影响对话请求指纹）
+const CLAIM_APP_VERSION = process.env.ZCODE_CLAIM_APP_VERSION || '3.17.2';
+// captcha sidecar：例 http://zcgw-captcha:8790 ；不设 = 不自动过验证，遇 3007 提示手动领取
+const CAPTCHA_URL = String(process.env.CAPTCHA_URL || '').trim().replace(/\/+$/, '');
+const CAPTCHA_TOKEN = String(process.env.CAPTCHA_TOKEN || '').trim();
+const CAPTCHA_MINT_TIMEOUT_MS = Number(process.env.CAPTCHA_MINT_TIMEOUT_MS || 200_000);
+const MANUAL_CLAIM_MSG = '需要在 ZCode 客户端手动领取（触发了人机验证）';
+
+/** 领取类请求的请求头：在通用头基础上换成当前客户端版本，按需带上验证码参数 */
+function claimHeaders(acc, captcha) {
+  const h = {
+    ...upstreamHeaders(acc),
+    'user-agent': `ZCode/${CLAIM_APP_VERSION}`,
+    'x-zcode-app-version': CLAIM_APP_VERSION,
+    accept: 'application/json',
+  };
+  // 领取不是模型请求，去掉 Anthropic 专属头
+  delete h['anthropic-version'];
+  delete h['anthropic-beta'];
+  if (captcha?.param) {
+    h['X-Aliyun-Captcha-Verify-Param'] = captcha.param;
+    h['X-Aliyun-Captcha-Verify-Region'] = captcha.region || 'cn';
+  }
+  return h;
 }
 
-/** 从 balance 里看当前已激活的非日包（周末包等） */
+// sidecar 状态（面板展示用）
+const captchaState = { lastMintAt: 0, lastOkAt: 0, lastResult: '', lastError: '', health: null, healthAt: 0 };
+
+/**
+ * 向 sidecar 要一个一次性的验证码参数。
+ * 返回 {ok:true, param, region} | {ok:false, reason:'unconfigured'|'challenge'|'timeout'|'error', detail}
+ */
+async function mintCaptcha() {
+  if (!CAPTCHA_URL) return { ok: false, reason: 'unconfigured', detail: '未配置 CAPTCHA_URL' };
+  captchaState.lastMintAt = Date.now();
+  try {
+    const r = await fetch(`${CAPTCHA_URL}/mint`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${CAPTCHA_TOKEN}`, 'content-type': 'application/json' },
+      body: '{}',
+      signal: AbortSignal.timeout(CAPTCHA_MINT_TIMEOUT_MS),
+    });
+    const j = await safeJson(r);
+    if (r.ok && typeof j.param === 'string' && j.param.trim()) {
+      captchaState.lastOkAt = Date.now();
+      captchaState.lastResult = 'ok';
+      captchaState.lastError = '';
+      return { ok: true, param: j.param.trim(), region: j.region || 'cn' };
+    }
+    const reason = r.status === 409 || j.error === 'challenge' ? 'challenge' : r.status === 504 ? 'timeout' : 'error';
+    const detail = r.status === 401 ? 'CAPTCHA_TOKEN 与 sidecar 不一致（401）' : j.detail || j.error || j.__error || `HTTP ${r.status}`;
+    captchaState.lastResult = reason;
+    captchaState.lastError = detail;
+    return { ok: false, reason, detail };
+  } catch (e) {
+    const reason = e?.name === 'TimeoutError' ? 'timeout' : 'error';
+    captchaState.lastResult = reason;
+    captchaState.lastError = e.message;
+    return { ok: false, reason, detail: e.message };
+  }
+}
+
+/** sidecar 健康状态（缓存 60 秒） */
+async function captchaStatus(force = false) {
+  const base = {
+    configured: !!CAPTCHA_URL,
+    url: CAPTCHA_URL || null,
+    hasToken: !!CAPTCHA_TOKEN,
+    lastMintAt: captchaState.lastMintAt,
+    lastOkAt: captchaState.lastOkAt,
+    lastResult: captchaState.lastResult,
+    lastError: captchaState.lastError,
+  };
+  if (!CAPTCHA_URL) return { ...base, healthy: false };
+  if (force || !captchaState.health || Date.now() - captchaState.healthAt > 60_000) {
+    try {
+      const r = await fetch(`${CAPTCHA_URL}/health`, {
+        headers: { authorization: `Bearer ${CAPTCHA_TOKEN}` },
+        signal: AbortSignal.timeout(5000),
+      });
+      const j = await safeJson(r);
+      captchaState.health = { healthy: r.ok && j.ok === true, detail: j, error: r.ok ? '' : `HTTP ${r.status}` };
+    } catch (e) {
+      captchaState.health = { healthy: false, detail: null, error: e.message };
+    }
+    captchaState.healthAt = Date.now();
+  }
+  const d = captchaState.health.detail || {};
+  return {
+    ...base,
+    healthy: captchaState.health.healthy,
+    // 带了正确 token 才会有这些字段；没有说明 token 不一致
+    authorized: d.browser !== undefined,
+    browser: d.browser || null,
+    browserUp: d.connected ?? null,
+    sidecarMints: d.mints ?? null,
+    sidecarOk: d.okCount ?? null,
+    sidecarLastError: d.lastError || '',
+    healthError: captchaState.health.error,
+  };
+}
+
+/** 验证码失败原因 → 给用户看的说明 */
+function manualReason(reason, detail) {
+  if (reason === 'unconfigured') return `${MANUAL_CLAIM_MSG}；未配置验证码 sidecar（CAPTCHA_URL）`;
+  if (reason === 'challenge') return `${MANUAL_CLAIM_MSG}；阿里云要求可见验证（滑块等），按规则不自动处理`;
+  if (reason === 'timeout') return `${MANUAL_CLAIM_MSG}；验证码 sidecar 铸参超时`;
+  if (reason === 'rejected') return `${MANUAL_CLAIM_MSG}；上游拒绝了验证码参数（3007，已换新参数重试一次）`;
+  return `${MANUAL_CLAIM_MSG}；验证码 sidecar 异常：${detail || '未知错误'}`;
+}
+
+// marketing/touch 的 seq：客户端进程内的请求计数（只用于服务端日志定位，不是分页）
+let touchSeq = 0;
+
+/** 从营销投放流里找 claim_zcode_plan 按钮（不依赖具体嵌套位置） */
+function touchPlansFrom(data) {
+  const out = [];
+  const deliveries = data?.deliveries;
+  if (!Array.isArray(deliveries)) return out;
+  for (const dv of deliveries) {
+    const ids = [];
+    const names = [];
+    const walk = (v, depth) => {
+      if (!v || typeof v !== 'object' || depth > 12) return;
+      if (Array.isArray(v)) return v.forEach((x) => walk(x, depth + 1));
+      if (v.type === 'claim_zcode_plan' && typeof v.args?.plan_id === 'string' && v.args.plan_id.trim()) ids.push(v.args.plan_id.trim());
+      const zp = v.zcode_plan || v.zcodePlan;
+      if (zp && typeof zp === 'object' && typeof zp.name === 'string') names.push(zp.name);
+      for (const k of Object.keys(v)) walk(v[k], depth + 1);
+    }
+    walk(dv, 0);
+    for (const id of ids) if (!out.some((p) => p.planId === id)) out.push({ planId: id, name: names[0] || id, source: 'touch' });
+  }
+  return out;
+}
+
+/** 营销投放流（v3.17 客户端唯一的活动包来源） */
+async function touchPlansFor(acc) {
+  try {
+    const r = await fetch(`${UPSTREAM_ORIGIN}/api/v1/marketing/touch?seq=${touchSeq++}`, {
+      headers: claimHeaders(acc),
+      signal: AbortSignal.timeout(20000),
+    });
+    const j = await safeJson(r);
+    if (j.code !== 0) return { plans: [], error: j.msg || j.__error || `HTTP ${r.status}` };
+    return { plans: touchPlansFrom(j.data) };
+  } catch (e) {
+    return { plans: [], error: e.message };
+  }
+}
+
+/** 可领取的 plan 列表：营销投放流 + preview（preview 自 11-03 起基本为空，保留作兼容） */
+async function claimableFor(acc) {
+  const [touch, preview] = await Promise.all([
+    touchPlansFor(acc),
+    (async () => {
+      try {
+        const r = await fetch(
+          `${UPSTREAM_ORIGIN}/api/v1/zcode-plan/billing/preview?app_version=${CLAIM_APP_VERSION}&platform=win32-x64`,
+          { headers: claimHeaders(acc), signal: AbortSignal.timeout(20000) },
+        );
+        return await safeJson(r);
+      } catch (e) {
+        return { __error: e.message };
+      }
+    })(),
+  ]);
+  const plans = [...touch.plans];
+  for (const p of preview.data?.plans ?? []) {
+    if (plans.some((x) => x.planId === p.plan_id)) continue;
+    plans.push({
+      planId: p.plan_id,
+      name: p.name,
+      description: p.description,
+      source: 'preview',
+      entitlements: (p.entitlements ?? []).map((e) => ({ model: e.show_name, grant: e.grant_units, period: e.period })),
+    });
+  }
+  return {
+    plans,
+    touchError: touch.error,
+    rawCode: preview.code ?? (preview.__error ? -1 : 0),
+    rawMsg: preview.msg ?? preview.__error ?? '',
+  };
+}
+
+/** 从 balance 里看当前已激活的套餐 */
 async function activeGrants(acc) {
   try {
     const r = await fetch(`${UPSTREAM_ORIGIN}/api/v1/zcode-plan/billing/balance?app_version=${APP_VERSION}`, {
@@ -1877,50 +2052,74 @@ async function activeGrants(acc) {
   }
 }
 
+/** 单次 claim POST，返回 {code, msg, data} 或 {code:'network'|'http-xxx', msg} */
+async function postClaim(acc, pid, captcha) {
+  try {
+    const r = await fetch(`${UPSTREAM_ORIGIN}/api/v1/zcode-plan/billing/claim`, {
+      method: 'POST',
+      headers: claimHeaders(acc, captcha),
+      body: JSON.stringify({ plan_id: pid }),
+      signal: AbortSignal.timeout(CLAIM_TIMEOUT_MS),
+    });
+    const text = await r.text();
+    try {
+      const j = JSON.parse(text);
+      return { code: j.code, msg: j.data?.message || j.msg || '', data: j.data, status: r.status };
+    } catch {
+      return { code: `http-${r.status}`, msg: text.slice(0, 80) || '(空响应)', status: r.status };
+    }
+  } catch (e) {
+    return { code: 'network', msg: e.message };
+  }
+}
+
 /**
- * 领取：preview 里有就用 preview，没有就试当天的活动包 id。
+ * 领取：营销投放流 / preview 里有就领那些；再按「缺哪类补哪类」试兜底 id。
  * 活动包 id 有日期编码（例：zcode-v3-start-plan-1030-wk = 10月30日周末）。
- * 关键：北京时间 0 点会跳日，所以候选要跨 ±1 天，不能只算当天。
+ * 北京时间 0 点会跳日，所以兜底候选跨 ±1 天。
  *
- * 修正过的重点：以前只要有一个「活动大包」就在效，就直接 return alreadyClaimed，
- * 结果永远不去领每日体验包（-0817），导致某些号只有周末包、没有每日额度。
- * 现在改成「按额度类型（kind）分别判断缺哪个，只补缺的那一类」。
+ * 验证码：配置了 CAPTCHA_URL 时，每个 claim POST 前现铸一个参数（一次性）；
+ * 上游回 3007 时换新参数重试一次，仍 3007 → 本账号本轮停止，标记「需手动领取」。
+ * 未配置 / sidecar 返回 challenge 或出错 → 同样停止并提示手动领取（不再逐个候选去撞 3007）。
  */
 async function claimFor(acc, planId) {
   const candidates = planId ? [planId] : [];
-  let missingKinds = [];
+  let offered = [];
 
   if (!planId) {
     const active = await activeGrants(acc);
+    const activeIds = new Set(active.map((p) => p.plan_id));
     const activeKinds = new Set(active.map((p) => describePlan(p.plan_id, p.name).kind));
 
     const { plans } = await claimableFor(acc);
-    for (const p of plans) candidates.push(p.planId);
+    offered = plans.filter((p) => !activeIds.has(p.planId));
+    for (const p of offered) candidates.push(p.planId);
 
-    // 只看「缺的类型」生成兑底候选，已有的类型不复重试
     const bj = Date.now() + 8 * 3600_000;
     const stamps = [0, -1, 1].map((delta) => {
       const d = new Date(bj + delta * 86400_000);
       return `${String(d.getUTCMonth() + 1).padStart(2, '0')}${String(d.getUTCDate()).padStart(2, '0')}`;
     });
-
-    // 活动大包：带日期编码，每周新发
-    if (!activeKinds.has('promo')) {
-      for (const s of stamps) candidates.push(`zcode-v3-start-plan-${s}-wk`);
-      missingKinds.push('promo');
+    const missingKinds = [];
+    // 投放流没给东西时才猜兜底 id（每个猜测都要消耗一个验证码参数，能少则少）
+    if (!offered.length) {
+      if (!activeKinds.has('promo')) {
+        for (const s of stamps) candidates.push(`zcode-v3-start-plan-${s}-wk`);
+        missingKinds.push('promo');
+      }
+      // 每日体验包：固定 id、一次性，领过就永久标记 → 只试这一个，不多发请求（多发会 429）
+      if (!activeKinds.has('daily')) {
+        candidates.push('zcode-v3-start-plan-0817');
+        missingKinds.push('daily');
+      }
     }
-    // 每日体验包：固定 id、一次性，领过就永久标记 → 只试这一个，不多发请求（多发会 429）
-    if (!activeKinds.has('daily')) {
-      candidates.push('zcode-v3-start-plan-0817');
-      missingKinds.push('daily');
-    }
 
-    // 所有类型都在效，才算真的不用领
-    if (!missingKinds.length) {
+    if (!candidates.length) {
       const first = active[0];
       return {
         ok: true,
         alreadyClaimed: true,
+        state: 'active',
         claimed: first?.plan_id,
         msg: first ? `${first.name} 已生效` : '已领取',
       };
@@ -1930,56 +2129,78 @@ async function claimFor(acc, planId) {
   const tried = [];
   const claimed = [];
   const dup = [];
-  const deadline = Date.now() + Number(process.env.ZCGW_CLAIM_BUDGET_MS || 25000);
+  let manual = null;
+  const budgetDefault = CAPTCHA_URL ? 300000 : 25000;
+  const deadline = Date.now() + Number(process.env.ZCGW_CLAIM_BUDGET_MS || budgetDefault);
   for (const pid of [...new Set(candidates)]) {
     if (Date.now() > deadline) {
       tried.push({ planId: '(...)', code: 'budget', msg: '候选太多，已超时中止' });
       break;
     }
-    let j = null;
-    try {
-      const r = await fetch(`${UPSTREAM_ORIGIN}/api/v1/zcode-plan/billing/claim`, {
-        method: 'POST',
-        headers: upstreamHeaders(acc),
-        body: JSON.stringify({ plan_id: pid }),
-        signal: AbortSignal.timeout(CLAIM_TIMEOUT_MS),
-      });
-      const text = await r.text();
-      try {
-        j = JSON.parse(text);
-      } catch {
-        tried.push({ planId: pid, code: `http-${r.status}`, msg: text.slice(0, 80) || '(空响应)' });
-        continue;
+    let captcha = null;
+    if (CAPTCHA_URL) {
+      captcha = await mintCaptcha();
+      if (!captcha.ok) {
+        manual = { reason: captcha.reason, detail: captcha.detail };
+        tried.push({ planId: pid, code: `captcha-${captcha.reason}`, msg: captcha.detail });
+        log(`[${acc.label}] 验证码铸参失败（${captcha.reason}）：${captcha.detail}`);
+        break;
       }
-    } catch (e) {
-      tried.push({ planId: pid, code: 'network', msg: e.message });
-      continue;
     }
-
-    const code = j.code;
-    const msg = j.data?.message || j.msg || '';
+    let r = await postClaim(acc, pid, captcha);
+    if (r.code === 3007 && CAPTCHA_URL) {
+      // 参数一次性，被拒后换一个新参数只重试一次
+      log(`[${acc.label}] claim ${pid} -> 3007，换新验证码参数重试一次`);
+      const again = await mintCaptcha();
+      if (!again.ok) {
+        manual = { reason: again.reason, detail: again.detail };
+        tried.push({ planId: pid, code: 3007, msg: MANUAL_CLAIM_MSG });
+        break;
+      }
+      r = await postClaim(acc, pid, again);
+    }
+    const { code } = r;
+    const msg = code === 3007 ? MANUAL_CLAIM_MSG : r.msg;
     tried.push({ planId: pid, code, msg });
-    log(`[${acc.label}] claim ${pid} -> ${code} ${msg}`);
+    log(`[${acc.label}] claim ${pid} -> ${code} ${r.msg}`);
 
-    // 领到了：继续试下一个缺失类型（以前在这里就 return，导致只领到一个）
-    if (code === 0 && j.data?.plan) {
-      claimed.push({ planId: pid, plan: j.data.plan });
+    if (code === 3007) {
+      // 没配 sidecar → 未配置；配了但换参后仍 3007 → 上游拒绝
+      manual = { reason: CAPTCHA_URL ? 'rejected' : 'unconfigured', detail: r.msg };
+      break;
+    }
+    if (code === 0 && r.data?.plan) {
+      claimed.push({ planId: pid, plan: r.data.plan });
       continue;
     }
-    // 1003 已领过：记下来，不阻断其它候选
     if (code === 1003) {
-      dup.push({ planId: pid, msg });
+      dup.push({ planId: pid, msg: r.msg });
       continue;
     }
-    // 1001 套餐不存在：继续试下一个候选
+    // 429 / 3002 频率限制：本轮直接停，别再打
+    if (code === 3002 || r.status === 429) break;
+    // 1001 套餐不存在 / 1004 暂不符合 / 1005 名额已尽：继续试下一个候选
   }
 
   if (claimed.length) {
     return {
       ok: true,
+      state: 'claimed',
       claimed: claimed.map((c) => c.planId).join(', '),
       claimedList: claimed.map((c) => c.planId),
       expired: dup.map((d) => d.planId),
+      ...(manual ? { manual: true, manualMsg: manualReason(manual.reason, manual.detail) } : {}),
+      tried,
+    };
+  }
+  if (manual) {
+    return {
+      ok: false,
+      manual: true,
+      state: 'manual',
+      captcha: manual.reason,
+      msg: manualReason(manual.reason, manual.detail),
+      offered: offered.map((p) => ({ planId: p.planId, name: p.name })),
       tried,
     };
   }
@@ -1989,13 +2210,173 @@ async function claimFor(acc, planId) {
       ok: true,
       alreadyClaimed: true,
       expired: true,
+      state: 'expired',
       claimed: dup[0].planId,
       upstreamMsg: dup[0].msg || '',
       msg: '上游返回 1003（target already exists）：该号此前已领过体验包，当前不在生效列表，体验窗口已结束，无法重复领取',
       tried,
     };
   }
-  return { ok: false, msg: tried.at(-1)?.msg || '没有可领取的套餐', tried };
+  const last = tried.at(-1);
+  return {
+    ok: false,
+    state: 'none',
+    code: last?.code,
+    msg: last?.msg || '没有可领取的套餐',
+    tried,
+  };
+}
+
+// ── 自动领取记录：每个账号最近一次领取结果（面板展示），落盘 data/auto-claim.json ──
+const AUTO_CLAIM_FILE = path.join(DATA_DIR, 'auto-claim.json');
+let autoClaimDb = (() => {
+  try { return JSON.parse(fs.readFileSync(AUTO_CLAIM_FILE, 'utf8')) || {}; } catch { return {}; }
+})();
+function saveAutoClaim() {
+  try { fs.writeFileSync(AUTO_CLAIM_FILE, JSON.stringify(autoClaimDb, null, 2)); } catch {}
+}
+/** 北京时间日期 YYYY-MM-DD */
+function bjDate(ts = Date.now()) {
+  return new Date(ts + 8 * 3600_000).toISOString().slice(0, 10);
+}
+/** 把一次 claimFor 结果记到账号上。source: daily | weekend | manual | onboard */
+function recordClaim(label, result, source) {
+  const rec = autoClaimDb[label] || {};
+  const last = {
+    at: Date.now(),
+    source,
+    state: result.state || (result.ok ? (result.alreadyClaimed ? 'active' : 'claimed') : 'error'),
+    ok: !!result.ok,
+    manual: !!result.manual,
+    claimed: result.claimed || '',
+    msg: result.manualMsg || result.msg || '',
+  };
+  rec.last = last;
+  if (source === 'daily' || source === 'weekend') {
+    const today = bjDate();
+    const key = source === 'daily' ? 'daily' : 'weekend';
+    const slot = rec[key]?.date === today ? rec[key] : { date: today, attempts: 0 };
+    slot.attempts += 1;
+    slot.lastAt = last.at;
+    slot.state = last.state;
+    rec[key] = slot;
+  }
+  autoClaimDb[label] = rec;
+  saveAutoClaim();
+}
+
+// ── 自动领取调度 ──
+// 每 10 分钟醒一次（不是每次都领）：
+//   每日：北京时间 dailyAt 起（默认 09:30）+ 当天随机 0–45 分钟抖动，每个账号每天领一次；
+//         结果是「没有可领 / 出错」时同日最多再试 2 次、间隔 ≥3 小时（投放可能迟到），22:00 后不再试；
+//         领到 / 已生效 / 已领过 / 需手动领取 → 当天不再碰。
+//   周末：周五 18:00 ～ 周日 24:00，缺周末包的号每 ≥60 分钟试一次、每天最多 8 次（抢 1005 名额），
+//         领到 / 需手动领取 / 已领过 → 当天停。
+//   逐号串行，账号之间随机间隔 20–60 秒，避免集中打上游。
+const AUTO_CLAIM = (() => {
+  let saved = {};
+  try { saved = JSON.parse(fs.readFileSync(path.join(DATA_DIR, 'pool-settings.json'), 'utf8')) || {}; } catch {}
+  const at = String(process.env.ZCGW_AUTO_CLAIM_AT || '09:30').match(/^(\d{1,2}):(\d{2})$/);
+  const h = at ? Math.min(23, Number(at[1])) : 9;
+  const m = at ? Math.min(59, Number(at[2])) : 30;
+  return {
+    enabled: process.env.ZCGW_AUTO_CLAIM !== '0' && saved.autoClaim !== false,
+    weekend: process.env.ZCGW_WEEKEND_GRAB !== '0' && saved.weekendGrab !== false,
+    dailyAt: `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`,
+    dailyStartMin: h * 60 + m,
+    dailyEndMin: 22 * 60,
+    jitterMin: 45,
+    dailyMaxAttempts: 3,
+    dailyRetryGapMs: 3 * 3600_000,
+    weekendGapMs: 60 * 60_000,
+    weekendMaxAttempts: 8,
+  };
+})();
+// 当天的随机抖动（进程内，每个北京日一个值）
+const dailyJitter = { date: '', min: 0 };
+let autoClaimRunning = false;
+const FINAL_STATES = new Set(['claimed', 'active', 'expired', 'manual']);
+
+function bjClock(ts = Date.now()) {
+  const d = new Date(ts + 8 * 3600_000);
+  return { day: d.getUTCDay(), min: d.getUTCHours() * 60 + d.getUTCMinutes(), date: d.toISOString().slice(0, 10) };
+}
+
+function autoClaimInfo() {
+  const c = bjClock();
+  if (dailyJitter.date !== c.date) Object.assign(dailyJitter, { date: c.date, min: Math.floor(Math.random() * (AUTO_CLAIM.jitterMin + 1)) });
+  const startMin = AUTO_CLAIM.dailyStartMin + dailyJitter.min;
+  return {
+    enabled: AUTO_CLAIM.enabled,
+    weekend: AUTO_CLAIM.weekend,
+    dailyAt: AUTO_CLAIM.dailyAt,
+    todayStart: `${String(Math.floor(startMin / 60)).padStart(2, '0')}:${String(startMin % 60).padStart(2, '0')}`,
+    captchaConfigured: !!CAPTCHA_URL,
+  };
+}
+
+/** 这个账号这一轮要不要领、以什么名义（daily / weekend / null） */
+function autoClaimDue(label, now = Date.now()) {
+  const c = bjClock(now);
+  const rec = autoClaimDb[label] || {};
+  const startMin = AUTO_CLAIM.dailyStartMin + dailyJitter.min;
+  const d = rec.daily?.date === c.date ? rec.daily : null;
+  if (c.min >= startMin && c.min < AUTO_CLAIM.dailyEndMin) {
+    if (!d) return 'daily';
+    if (!FINAL_STATES.has(d.state) && d.attempts < AUTO_CLAIM.dailyMaxAttempts && now - d.lastAt >= AUTO_CLAIM.dailyRetryGapMs) return 'daily';
+  }
+  // 当天每日领取已出「需手动领取」，周末抢领也不再去撞验证码
+  if (d?.state === 'manual') return null;
+  if (AUTO_CLAIM.weekend) {
+    const inWindow = (c.day === 5 && c.min >= 18 * 60) || c.day === 6 || c.day === 0;
+    if (inWindow) {
+      const w = rec.weekend?.date === c.date ? rec.weekend : null;
+      if (!w) return 'weekend';
+      if (!FINAL_STATES.has(w.state) && w.attempts < AUTO_CLAIM.weekendMaxAttempts && now - w.lastAt >= AUTO_CLAIM.weekendGapMs) return 'weekend';
+    }
+  }
+  return null;
+}
+
+async function autoClaimTick() {
+  if (!AUTO_CLAIM.enabled || autoClaimRunning) return;
+  autoClaimRunning = true;
+  try {
+    autoClaimInfo(); // 刷新当天抖动
+    let first = true;
+    for (const acc of [...accounts]) {
+      const due = autoClaimDue(acc.label);
+      if (!due) continue;
+      if (due === 'weekend') {
+        // 周末抢领只针对缺周末包的号
+        const active = await activeGrants(acc);
+        if (active.some((p) => describePlan(p.plan_id, p.name).kind === 'promo')) {
+          recordClaim(acc.label, { ok: true, alreadyClaimed: true, state: 'active', msg: '周末包已生效' }, 'weekend');
+          continue;
+        }
+      }
+      if (!first) await new Promise((r) => setTimeout(r, 20_000 + Math.floor(Math.random() * 40_000)));
+      first = false;
+      let r;
+      try {
+        r = await claimFor(acc);
+      } catch (e) {
+        r = { ok: false, state: 'error', msg: e.message };
+      }
+      recordClaim(acc.label, r, due);
+      const tag = due === 'daily' ? '[auto-claim]' : '[weekend-grab]';
+      if (r.state === 'claimed') log(`${tag} ${acc.label} 领取成功：${r.claimed}`);
+      else if (r.state === 'manual') log(`${tag} ${acc.label} ${r.msg}`);
+      else if (VERBOSE || r.state === 'error') log(`${tag} ${acc.label} ${r.state}：${r.msg || ''}`);
+    }
+  } finally {
+    autoClaimRunning = false;
+  }
+}
+
+/** 验证码 sidecar 状态（面板用）：GET /captcha/status */
+async function handleCaptchaStatus(req, res, url) {
+  sendJson(res, 200, await captchaStatus(url.searchParams.get('refresh') === '1'));
 }
 
 /** 可领取的 plan 列表（一键领取的前置） */
@@ -2003,10 +2384,11 @@ async function handleClaimable(req, res) {
   const out = [];
   for (const acc of accounts) {
     try {
-      const { plans, rawCode, rawMsg } = await claimableFor(acc);
+      const { plans, rawCode, rawMsg, touchError } = await claimableFor(acc);
       out.push({
         label: acc.label,
         claimable: plans,
+        touchError,
         raw: rawCode !== 0 || plans.length === 0 ? { code: rawCode, msg: rawMsg } : undefined,
       });
     } catch (e) {
@@ -2028,7 +2410,9 @@ async function handleClaim(req, res) {
   const results = [];
   for (const acc of targets) {
     try {
-      results.push({ label: acc.label, ...(await claimFor(acc, body.planId)) });
+      const r = await claimFor(acc, body.planId);
+      recordClaim(acc.label, r, 'manual');
+      results.push({ label: acc.label, ...r });
     } catch (e) {
       results.push({ label: acc.label, ok: false, msg: e.message });
     }
@@ -2135,6 +2519,7 @@ async function handleAccountAdd(req, res) {
   if (acc) {
     try {
       claim = await claimFor(acc);
+      recordClaim(acc.label, claim, 'onboard');
       quota = await quotaOf(acc);
     } catch (e) {
       claim = { ok: false, msg: e.message };
@@ -2261,6 +2646,7 @@ async function handleOnboardPoll(req, res, flowId) {
   if (acc) {
     try {
       claim = await claimFor(acc);
+      recordClaim(acc.label, claim, 'onboard');
       quota = await quotaOf(acc);
     } catch (e) {
       claim = { ok: false, msg: e.message };
@@ -2683,6 +3069,7 @@ const server = http.createServer((req, res) => {
   if (req.method === 'GET' && url.pathname === '/quota') return handleQuota(req, res);
   if (req.method === 'GET' && url.pathname === '/claimable') return handleClaimable(req, res);
   if (req.method === 'POST' && url.pathname === '/claim') return handleClaim(req, res);
+  if (req.method === 'GET' && url.pathname === '/captcha/status') return handleCaptchaStatus(req, res, url);
   if (req.method === 'POST' && url.pathname === '/accounts/identify') return handleIdentifyAll(req, res);
   if (req.method === 'POST' && url.pathname === '/accounts/add') return handleAccountAdd(req, res);
   if (req.method === 'POST' && url.pathname === '/accounts/update') return handleAccountUpdate(req, res);
@@ -2771,41 +3158,15 @@ server.listen(PORT, HOST, () => {
   setInterval(refreshQuotaWeights, 10 * 60_000); // 每 10 分钟刷一次权重缓存
   setInterval(savePoolState, 60_000); // 每分钟落盘一次调度状态
 
-  // 周末额度自动抢领：周五 18:00 ～ 周日 24:00（北京时间）每 10 分钟试一轮，
-  // 抢到即停；名额开闸第一时间拿到，避免 1005 名额已用完
-  const WEEKEND_GRAB = (() => {
-    try { return JSON.parse(fs.readFileSync(path.join(DATA_DIR, 'pool-settings.json'), 'utf8')).weekendGrab ?? true; }
-    catch { return true; }
-  })();
-  if (WEEKEND_GRAB) {
-    const grabTick = async () => {
-      try {
-        const bj = new Date(Date.now() + 8 * 3600_000);
-        const day = bj.getUTCDay(), hour = bj.getUTCHours();
-        // 周五(5) 18 点后 / 周六(6) 全天 / 周日(0) 24 点前
-        const inWindow = (day === 5 && hour >= 18) || day === 6 || (day === 0);
-        if (!inWindow) return;
-        // 找缺 promo 的号（有访问资格才领）
-        for (const acc of accounts) {
-          const active = await activeGrants(acc);
-          const kinds = new Set(active.map((p) => describePlan(p.plan_id, p.name).kind));
-          if (kinds.has('promo')) continue;
-          const r = await fetch(`http://127.0.0.1:${PORT}/claim`, {
-            method: 'POST', headers: { 'content-type': 'application/json', 'x-zcgw-internal': INTERNAL_TOKEN },
-            body: JSON.stringify({ label: acc.label }),
-          });
-          const j = await safeJson(r);
-          const x = (j.results ?? [])[0] ?? {};
-          if (x.ok && !x.alreadyClaimed) log(`[weekend-grab] ${acc.label} 抢领成功：${x.claimed}`);
-          else if (x.code === 1005) log(`[weekend-grab] ${acc.label} 1005 名额未开/已尽，下轮再试`);
-        }
-      } catch (e) {
-        if (VERBOSE) log('[weekend-grab] tick error:', e.message);
-      }
-    };
-    setInterval(grabTick, 10 * 60_000);
-    setTimeout(grabTick, 15_000);
-    log('weekend-grab: 周末额度自动抢领已启用（周五18:00 起）');
+  // 自动领取（每日 + 周末抢领）：见 autoClaimTick()
+  if (AUTO_CLAIM.enabled) {
+    setTimeout(() => autoClaimTick().catch(() => {}), 60_000);
+    setInterval(() => autoClaimTick().catch(() => {}), 10 * 60_000);
+    log(`auto-claim: 每日自动领取已启用（北京时间 ${AUTO_CLAIM.dailyAt} 起 + 随机 0–${AUTO_CLAIM.jitterMin} 分钟，逐号串行）` +
+      (AUTO_CLAIM.weekend ? '；周末抢领：周五 18:00 ～ 周日 24:00' : '') +
+      `；验证码 sidecar：${CAPTCHA_URL ? CAPTCHA_URL : '未配置（遇验证码提示手动领取）'}`);
+  } else {
+    log('auto-claim: 已关闭（ZCGW_AUTO_CLAIM=0 或 pool-settings.json autoClaim=false）');
   }
 
   // 启动后自动补齐身份：先吃本地客户端的 access_token，再拿官方客户档案反查邮箱/手机号
